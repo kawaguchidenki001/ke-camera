@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#1e4d2b" />
+  <meta name="description" content="工事黒板を写真に焼き込んで Google Drive に保存する現場カメラ PWA" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="KE-Camera" />
+
+  <title>KE-Camera | 小黒板カメラ</title>
+
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<header class="app-header" id="appHeader">
+  <button class="header-btn" id="navMenuBtn" aria-label="メニュー" type="button">
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path fill="currentColor" d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/>
+    </svg>
+  </button>
+  <h1 class="app-title">KE-Camera</h1>
+  <button class="header-btn" id="authStatusBtn" aria-label="認証状態" type="button">
+    <span id="authIndicator" class="auth-indicator off" aria-hidden="true"></span>
+  </button>
+</header>
+
+<main class="app-main" id="appMain">
+
+  <!-- ============================== 初期画面 ============================== -->
+  <section class="screen active" id="screenHome" data-screen="home">
+    <div class="card welcome">
+      <div class="welcome-icon" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="64" height="64">
+          <rect x="6" y="14" width="52" height="40" rx="4" fill="#1e4d2b" stroke="#fff" stroke-width="2"/>
+          <circle cx="48" cy="22" r="3" fill="#fbbf24"/>
+          <text x="32" y="40" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="10" font-weight="bold">工事黒板</text>
+        </svg>
+      </div>
+      <h2>小黒板カメラ</h2>
+      <p class="welcome-msg" id="welcomeMsg">セットアップを開始してください。</p>
+      <div class="welcome-actions">
+        <button class="btn btn-primary btn-lg" id="btnLoginHome" type="button">
+          Google でログイン
+        </button>
+        <button class="btn btn-ghost" id="btnSettingsHome" type="button">
+          設定を開く
+        </button>
+      </div>
+    </div>
+
+    <div class="setup-check" id="setupCheck" hidden>
+      <h3>セットアップ状況</h3>
+      <ul class="check-list">
+        <li id="checkApiKey"><span class="check-icon"></span> Sheets API キー</li>
+        <li id="checkSheetId"><span class="check-icon"></span> 工事マスタシート ID</li>
+        <li id="checkClientId"><span class="check-icon"></span> OAuth クライアント ID</li>
+        <li id="checkDriveFolder"><span class="check-icon"></span> Drive 保存先フォルダ</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================== 工事選択 ============================== -->
+  <section class="screen" id="screenProjectSelect" data-screen="projectSelect">
+    <div class="screen-head">
+      <h2>工事を選択</h2>
+      <button class="btn btn-icon" id="btnReloadProjects" aria-label="再読み込み" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M17.65 6.35A8 8 0 1 0 19.74 16h-2.13a6 6 0 1 1-1.5-7.94L13 11h7V4l-2.35 2.35z"/></svg>
+      </button>
+    </div>
+
+    <div class="search-box">
+      <input type="search" id="projectSearch" placeholder="工事名・工種で検索…" autocomplete="off" />
+    </div>
+
+    <div class="project-list" id="projectList" aria-live="polite">
+      <div class="empty-state" id="projectListEmpty">
+        <p>工事を読み込んでいます…</p>
+      </div>
+    </div>
+
+    <div class="screen-foot">
+      <button class="btn btn-ghost" id="btnManualEntry" type="button">マスタを使わず手入力で進める</button>
+    </div>
+  </section>
+
+  <!-- ============================== 黒板編集 ============================== -->
+  <section class="screen" id="screenBoardEdit" data-screen="boardEdit">
+    <div class="screen-head">
+      <button class="btn btn-icon" id="btnBackToProjects" aria-label="戻る" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg>
+      </button>
+      <h2>黒板の内容</h2>
+    </div>
+
+    <form class="board-form" id="boardForm" autocomplete="off">
+      <label class="field">
+        <span class="field-label">工事名</span>
+        <input type="text" id="fldKoujiMei" required maxlength="80" />
+      </label>
+
+      <label class="field">
+        <span class="field-label">工種</span>
+        <input type="text" id="fldKoushu" list="koushuList" maxlength="40" />
+        <datalist id="koushuList">
+          <option value="電気設備工事"></option>
+          <option value="照明器具取替"></option>
+          <option value="幹線配線"></option>
+          <option value="盤類設置"></option>
+          <option value="火災報知設備"></option>
+          <option value="弱電設備"></option>
+          <option value="絶縁抵抗測定"></option>
+          <option value="接地抵抗測定"></option>
+          <option value="LED 化改修"></option>
+        </datalist>
+      </label>
+
+      <label class="field">
+        <span class="field-label">施工者</span>
+        <input type="text" id="fldShikousha" maxlength="40" />
+      </label>
+
+      <label class="field">
+        <span class="field-label">撮影内容</span>
+        <input type="text" id="fldNaiyou" maxlength="60" required />
+      </label>
+
+      <label class="field">
+        <span class="field-label">撮影年月日</span>
+        <input type="date" id="fldDate" required />
+      </label>
+    </form>
+
+    <details class="advanced">
+      <summary>表示オプション</summary>
+      <div class="advanced-body">
+        <label class="field">
+          <span class="field-label">黒板の位置</span>
+          <select id="optBoardPos">
+            <option value="bottom">写真の下</option>
+            <option value="top">写真の上</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">黒板の高さ比率</span>
+          <select id="optBoardHeight">
+            <option value="0.22">小(22%)</option>
+            <option value="0.28" selected>標準(28%)</option>
+            <option value="0.34">大(34%)</option>
+          </select>
+        </label>
+        <label class="field check">
+          <input type="checkbox" id="optShowSeq" checked />
+          <span>連番を黒板に表示する</span>
+        </label>
+      </div>
+    </details>
+
+    <div class="screen-foot">
+      <button class="btn btn-primary btn-lg" id="btnGoCamera" type="button">
+        撮影画面へ進む
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================== カメラ ============================== -->
+  <section class="screen camera-screen" id="screenCamera" data-screen="camera">
+    <div class="camera-viewport">
+      <video id="videoEl" playsinline muted autoplay></video>
+      <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
+      <div class="camera-info" id="cameraInfo">
+        <span id="cameraInfoText">準備中…</span>
+      </div>
+    </div>
+
+    <div class="camera-controls">
+      <button class="btn btn-icon-lg" id="btnCameraBack" aria-label="戻る" type="button">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg>
+      </button>
+
+      <button class="shutter" id="btnShutter" aria-label="シャッター" type="button">
+        <span class="shutter-inner"></span>
+      </button>
+
+      <button class="btn btn-icon-lg" id="btnSwitchCamera" aria-label="カメラ切替" type="button">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-8 13c-2.76 0-5-2.24-5-5h-2l3-3 3 3H9c0 1.65 1.35 3 3 3s3-1.35 3-3h2c0 2.76-2.24 5-5 5z"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================== プレビュー ============================== -->
+  <section class="screen preview-screen" id="screenPreview" data-screen="preview">
+    <div class="preview-viewport">
+      <img id="previewImg" alt="撮影プレビュー" />
+    </div>
+
+    <div class="preview-status" id="previewStatus">
+      <span id="previewStatusText">確認してください</span>
+    </div>
+
+    <div class="preview-controls">
+      <button class="btn btn-ghost btn-lg" id="btnRetake" type="button">
+        撮り直し
+      </button>
+      <button class="btn btn-primary btn-lg" id="btnUpload" type="button">
+        Drive に保存
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================== 設定 ============================== -->
+  <section class="screen" id="screenSettings" data-screen="settings">
+    <div class="screen-head">
+      <button class="btn btn-icon" id="btnSettingsBack" aria-label="戻る" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg>
+      </button>
+      <h2>設定</h2>
+    </div>
+
+    <div class="settings-body">
+
+      <section class="setting-group">
+        <h3>Google 認証</h3>
+        <label class="field">
+          <span class="field-label">OAuth クライアント ID</span>
+          <input type="text" id="setClientId" placeholder="xxxxx.apps.googleusercontent.com" />
+          <small class="hint">Google Cloud Console > 認証情報 で発行</small>
+        </label>
+      </section>
+
+      <section class="setting-group">
+        <h3>工事マスタ(Sheets)</h3>
+        <label class="field">
+          <span class="field-label">Sheets API キー</span>
+          <input type="text" id="setApiKey" placeholder="AIza..." />
+          <small class="hint">読み取り専用。HTTP リファラ制限を必ず掛けること</small>
+        </label>
+        <label class="field">
+          <span class="field-label">スプレッドシート ID</span>
+          <input type="text" id="setSheetId" placeholder="1AbCdEf..." />
+          <small class="hint">シートの URL の「/d/」と「/edit」の間の文字列</small>
+        </label>
+        <label class="field">
+          <span class="field-label">読み取り範囲</span>
+          <input type="text" id="setSheetRange" placeholder="工事一覧!A2:E" />
+          <small class="hint">列順: 工事名 / 工種 / 施工者 / Drive フォルダ ID / 区分</small>
+        </label>
+      </section>
+
+      <section class="setting-group">
+        <h3>Drive 保存先</h3>
+        <label class="field">
+          <span class="field-label">既定保存先フォルダ ID</span>
+          <input type="text" id="setDriveFolder" placeholder="マスタに未指定のときの保存先" />
+          <small class="hint">マスタに Drive フォルダ ID がある工事はそちらが優先</small>
+        </label>
+        <label class="field">
+          <span class="field-label">ファイル名のテンプレート</span>
+          <input type="text" id="setFilenameTpl" placeholder="{date}_{kouji}_{naiyou}_{seq}.jpg" />
+          <small class="hint">使えるトークン: {date} {kouji} {koushu} {naiyou} {seq} {time}</small>
+        </label>
+      </section>
+
+      <section class="setting-group">
+        <h3>撮影者(既定値)</h3>
+        <label class="field">
+          <span class="field-label">既定の施工者名</span>
+          <input type="text" id="setDefaultShikousha" />
+        </label>
+      </section>
+
+      <section class="setting-group">
+        <h3>データ</h3>
+        <div class="setting-actions">
+          <button class="btn btn-ghost" id="btnExportSettings" type="button">設定を書き出し</button>
+          <button class="btn btn-ghost" id="btnImportSettings" type="button">設定を読み込み</button>
+          <button class="btn btn-danger" id="btnResetSettings" type="button">設定を初期化</button>
+        </div>
+        <input type="file" id="importFile" accept=".json" hidden />
+      </section>
+
+      <div class="screen-foot">
+        <button class="btn btn-primary btn-lg" id="btnSaveSettings" type="button">保存</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============================== ナビ ドロワー ============================== -->
+<nav class="drawer" id="navDrawer" aria-hidden="true">
+  <div class="drawer-backdrop" data-close-drawer></div>
+  <div class="drawer-panel">
+    <div class="drawer-head">
+      <strong>KE-Camera</strong>
+      <button class="btn btn-icon" data-close-drawer aria-label="閉じる" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <ul class="drawer-menu">
+      <li><button data-nav="home" type="button">ホーム</button></li>
+      <li><button data-nav="projectSelect" type="button">工事を選択</button></li>
+      <li><button data-nav="boardEdit" type="button">黒板の内容</button></li>
+      <li><button data-nav="settings" type="button">設定</button></li>
+    </ul>
+    <div class="drawer-foot">
+      <button class="btn btn-ghost" id="btnSignOut" type="button">サインアウト</button>
+      <p class="version">v0.1.0</p>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================== トースト / モーダル ============================== -->
+<div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+<div class="modal" id="loadingModal" aria-hidden="true">
+  <div class="modal-backdrop"></div>
+  <div class="modal-panel">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="loadingText">処理中…</p>
+  </div>
+</div>
+
+<!-- ============================== Scripts (ES Modules) ============================== -->
+<script type="module" src="./js/app.js"></script>
+
+<script>
+// Service Worker 登録(モジュール外、即時実行)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .catch(err => console.warn('SW 登録失敗:', err));
+  });
+}
+</script>
+
+</body>
+</html>

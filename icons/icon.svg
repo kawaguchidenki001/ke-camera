@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e6a3e"/>
+      <stop offset="1" stop-color="#143a1f"/>
+    </linearGradient>
+    <linearGradient id="board" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e4d2b"/>
+      <stop offset="1" stop-color="#143a1f"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 角丸背景 -->
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <!-- カメラボディ -->
+  <g transform="translate(0,18)">
+    <!-- 黒板 -->
+    <rect x="78" y="232" width="356" height="184" rx="16" fill="url(#board)" stroke="#ffffff" stroke-width="6"/>
+    <!-- 黒板の行 -->
+    <line x1="98"  y1="276" x2="414" y2="276" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <line x1="98"  y1="320" x2="414" y2="320" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <line x1="98"  y1="364" x2="414" y2="364" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <line x1="256" y1="276" x2="256" y2="364" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+
+    <!-- カメラレンズ(黒板の上に配置) -->
+    <circle cx="256" cy="170" r="86" fill="#0f2916" stroke="#ffffff" stroke-width="8"/>
+    <circle cx="256" cy="170" r="62" fill="#1e4d2b"/>
+    <circle cx="256" cy="170" r="40" fill="#0f2916"/>
+    <circle cx="240" cy="156" r="14" fill="rgba(255,255,255,0.32)"/>
+
+    <!-- シャッターランプ(安全色) -->
+    <circle cx="380" cy="106" r="14" fill="#fbbf24"/>
+
+    <!-- KE タイポ -->
+    <text x="256" y="406" text-anchor="middle"
+          font-family="-apple-system, 'Hiragino Sans', 'Yu Gothic UI', sans-serif"
+          font-size="36" font-weight="800" fill="#ffffff" letter-spacing="2">KE-Camera</text>
+  </g>
+</svg>
