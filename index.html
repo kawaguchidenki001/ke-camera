@@ -58,7 +58,14 @@
         <button class="btn btn-primary btn-xl" id="btnLoginSplash" type="button">
           Google でログイン
         </button>
+        <button class="btn btn-ghost" id="btnSkipLogin" type="button">
+          ログインせずに使う(後で送信)
+        </button>
       </div>
+      <p class="splash-mode-hint">
+        ログインすれば撮影と同時に Drive 保存。<br>
+        ログインしない場合は端末に保存し、後でまとめて送信できます。
+      </p>
 
       <p class="splash-version">小黒板カメラ <span id="appVersion">v1.0.0</span></p>
     </div>
@@ -100,6 +107,20 @@
     </div>
 
     <p class="next-hint" id="nextSeqHint"></p>
+
+    <!-- 未送信写真カード(未送信が1枚以上あるとき表示) -->
+    <button class="outbox-card" id="outboxCard" type="button" hidden>
+      <div class="oc-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path fill="currentColor" d="M19 8h-3V3H8v5H5l7 7 7-7zM5 19v2h14v-2H5z" transform="rotate(180 12 12)"/>
+        </svg>
+      </div>
+      <div class="oc-body">
+        <span class="oc-title">未送信の写真</span>
+        <span class="oc-count" id="outboxCount">0 枚</span>
+      </div>
+      <span class="oc-chevron" aria-hidden="true">›</span>
+    </button>
 
     <button class="btn btn-primary btn-xl shutter-go" id="btnGoCamera" type="button" disabled>
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -157,6 +178,35 @@
     <div class="preview-controls">
       <button class="btn btn-ghost btn-lg" id="btnRetake" type="button">撮り直し</button>
       <button class="btn btn-primary btn-lg" id="btnUpload" type="button">Drive に保存</button>
+    </div>
+  </section>
+
+  <!-- ========== Outbox 画面 ========== -->
+  <section class="screen" data-screen="outbox">
+    <div class="screen-head">
+      <button class="header-btn dark" id="btnOutboxBack" aria-label="戻る" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg>
+      </button>
+      <h2>未送信写真</h2>
+      <span class="outbox-summary" id="outboxSummary"></span>
+    </div>
+
+    <div class="outbox-actions">
+      <button class="btn btn-primary btn-lg" id="btnUploadAll" type="button">
+        すべて Drive に送信
+      </button>
+      <button class="btn btn-ghost" id="btnRefreshOutbox" type="button">再読み込み</button>
+    </div>
+
+    <div class="outbox-progress" id="outboxProgress" hidden>
+      <div class="op-bar"><div class="op-fill" id="opFill"></div></div>
+      <p class="op-text" id="opText">送信中…</p>
+    </div>
+
+    <div class="outbox-list" id="outboxList"></div>
+
+    <div class="outbox-empty" id="outboxEmpty" hidden>
+      <p>未送信の写真はありません</p>
     </div>
   </section>
 

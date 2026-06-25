@@ -163,3 +163,11 @@ export function escapeHtml(s) {
 }
 
 export const dom = { $, $$ };
+
+/* ============================================================ confirm dialog */
+
+export function confirmDialog(message) {
+  return new Promise((resolve) => {
+    resolve(window.confirm(message));
+  });
+}

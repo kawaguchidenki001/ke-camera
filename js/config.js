@@ -1,7 +1,7 @@
 // js/config.js
 // 北方カメラ - 全設定をコード埋め込み(利用者は設定不要)
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.1.0";
 export const APP_NAME = "北方カメラ";
 
 // ===== 工事情報(固定・変更不可) =====
@@ -68,6 +68,11 @@ export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{type}_{seq}.jpg";
 
 // ===== JPEG 品質 =====
 export const JPEG_QUALITY = 0.92;
+
+// ===== ローカル保存(未送信)の上限と自動削除 =====
+export const PENDING_LIMIT = 100;         // 未送信写真の上限(撮影をブロック)
+export const PENDING_WARN  = 80;          // 警告色を出す閾値
+export const AUTO_CLEANUP_DAYS = 7;       // 送信済み写真の Blob を保持する日数
 
 // ===== カメラ初期設定 =====
 export const CAMERA_DEFAULTS = Object.freeze({
