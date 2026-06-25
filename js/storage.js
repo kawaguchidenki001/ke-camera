@@ -138,3 +138,81 @@ export function peekSeq(roomKey, dateStr) {
   const key = KEYS.SEQ_PREFIX + (dateStr || "x") + ":" + (roomKey || "x");
   return parseInt(localStorage.getItem(key) || "0", 10) || 0;
 }
+
+/* ============================================================ Sheets キャッシュ(オフライン時の代替用) */
+
+const CONFIG_CACHE_KEY = "kc:configCache";
+
+export function saveConfigCache(cfg) {
+  try {
+    localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify({
+      cachedAt: Date.now(),
+      cfg,
+    }));
+  } catch (e) { console.warn("config cache save failed", e); }
+}
+
+export function loadConfigCache() {
+  try {
+    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+
+/* ============================================================ 黒板レイアウト永続化 */
+
+const BOARD_RECT_KEY  = "kc:boardRect";
+const BOARD_SCALE_KEY = "kc:boardScale";
+const BOARD_NOBD_KEY  = "kc:boardNoBoard";
+
+const DEFAULT_BOARD_RECT  = { x: 0, y: 0.7, w: 0.37 };
+const DEFAULT_BOARD_SCALE = { a: 1, b: 1, c: 1, d: 1, e: 1, f: 1 };
+
+export function loadBoardRect() {
+  try {
+    const raw = localStorage.getItem(BOARD_RECT_KEY);
+    if (!raw) return { ...DEFAULT_BOARD_RECT };
+    const obj = JSON.parse(raw);
+    return {
+      x: clampNum(obj.x, 0, 1, DEFAULT_BOARD_RECT.x),
+      y: clampNum(obj.y, 0, 1, DEFAULT_BOARD_RECT.y),
+      w: clampNum(obj.w, 0.2, 0.55, DEFAULT_BOARD_RECT.w),
+    };
+  } catch (e) { return { ...DEFAULT_BOARD_RECT }; }
+}
+
+export function saveBoardRect(rect) {
+  try { localStorage.setItem(BOARD_RECT_KEY, JSON.stringify(rect)); } catch (e) {}
+}
+
+export function loadBoardScale() {
+  try {
+    const raw = localStorage.getItem(BOARD_SCALE_KEY);
+    if (!raw) return { ...DEFAULT_BOARD_SCALE };
+    const obj = JSON.parse(raw);
+    const result = {};
+    for (const k of "abcdef") {
+      result[k] = clampNum(obj[k], 0.5, 1.6, 1);
+    }
+    return result;
+  } catch (e) { return { ...DEFAULT_BOARD_SCALE }; }
+}
+
+export function saveBoardScale(scale) {
+  try { localStorage.setItem(BOARD_SCALE_KEY, JSON.stringify(scale)); } catch (e) {}
+}
+
+export function loadNoBoardFlag() {
+  return localStorage.getItem(BOARD_NOBD_KEY) === "1";
+}
+
+export function saveNoBoardFlag(on) {
+  localStorage.setItem(BOARD_NOBD_KEY, on ? "1" : "0");
+}
+
+function clampNum(v, lo, hi, fb) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fb;
+  return Math.max(lo, Math.min(hi, n));
+}

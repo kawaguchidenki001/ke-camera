@@ -2,51 +2,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2e6a3e"/>
-      <stop offset="1" stop-color="#143a1f"/>
+      <stop offset="0" stop-color="#dff5f5"/>
+      <stop offset="1" stop-color="#a3d8d8"/>
     </linearGradient>
     <linearGradient id="board" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1e4d2b"/>
-      <stop offset="1" stop-color="#143a1f"/>
+      <stop offset="0" stop-color="#1a8c78"/>
+      <stop offset="1" stop-color="#156e5e"/>
     </linearGradient>
-    <radialGradient id="bulb" cx="0.5" cy="0.4" r="0.6">
-      <stop offset="0" stop-color="#fff8c5"/>
-      <stop offset="0.5" stop-color="#fbbf24"/>
-      <stop offset="1" stop-color="#d39a17"/>
-    </radialGradient>
   </defs>
 
-  <!-- 角丸背景 -->
+  <!-- 背景(角丸) -->
   <rect x="0" y="0" width="512" height="512" rx="96" fill="url(#bg)"/>
 
-  <!-- 黒板(下半分) -->
+  <!-- カメラ本体 -->
   <g>
-    <rect x="60" y="240" width="392" height="200" rx="16" fill="url(#board)" stroke="#ffffff" stroke-width="6"/>
-    <!-- 黒板の中の罫線(4行) -->
-    <line x1="84" y1="282" x2="428" y2="282" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <line x1="84" y1="324" x2="428" y2="324" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <line x1="84" y1="366" x2="428" y2="366" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <line x1="84" y1="408" x2="428" y2="408" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <!-- 縦線 -->
-    <line x1="240" y1="282" x2="240" y2="408" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <rect x="60" y="170" width="392" height="250" rx="32" fill="#e8ecf2" stroke="#0d9aa0" stroke-width="8"/>
+    <!-- 上部の出っ張り(レンズシャッター部分) -->
+    <path d="M 200 170 L 220 130 L 292 130 L 312 170 Z" fill="#e8ecf2" stroke="#0d9aa0" stroke-width="8"/>
+
+    <!-- レンズ外側 -->
+    <circle cx="256" cy="290" r="85" fill="#0d9aa0"/>
+    <circle cx="256" cy="290" r="75" fill="#0a7d82"/>
+    <circle cx="256" cy="290" r="60" fill="#173a3c"/>
+    <!-- レンズ反射 -->
+    <circle cx="230" cy="270" r="18" fill="rgba(255,255,255,0.32)"/>
+
+    <!-- フラッシュ -->
+    <circle cx="400" cy="220" r="14" fill="#fbbf24"/>
   </g>
 
-  <!-- LED 電球シンボル(中央上) -->
-  <g transform="translate(256, 156)">
-    <!-- 光線 -->
-    <g stroke="#fbbf24" stroke-width="6" stroke-linecap="round" opacity="0.85">
-      <line x1="0" y1="-90" x2="0" y2="-70"/>
-      <line x1="-78" y1="-45" x2="-62" y2="-32"/>
-      <line x1="78" y1="-45" x2="62" y2="-32"/>
-      <line x1="-90" y1="0" x2="-70" y2="0"/>
-      <line x1="90" y1="0" x2="70" y2="0"/>
-    </g>
-    <!-- 電球本体 -->
-    <circle cx="0" cy="0" r="56" fill="url(#bulb)" stroke="#ffffff" stroke-width="6"/>
-    <!-- フィラメント -->
-    <path d="M -18 8 Q 0 -24 18 8" fill="none" stroke="#d39a17" stroke-width="3" stroke-linecap="round"/>
-    <!-- 口金 -->
-    <rect x="-22" y="48" width="44" height="18" rx="4" fill="#0f2916" stroke="#ffffff" stroke-width="3"/>
-    <line x1="-18" y1="58" x2="18" y2="58" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
+  <!-- 黒板(下部に小さく重ねる) -->
+  <g>
+    <rect x="120" y="395" width="272" height="60" rx="6" fill="url(#board)" stroke="#fff" stroke-width="4"/>
+    <line x1="130" y1="415" x2="382" y2="415" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <line x1="130" y1="430" x2="382" y2="430" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <line x1="180" y1="400" x2="180" y2="450" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
   </g>
 </svg>

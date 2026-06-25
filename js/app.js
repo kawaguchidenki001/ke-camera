@@ -1,10 +1,10 @@
 // js/app.js
-// 北方カメラ - メインエントリ(オフライン対応版)
+// 北方カメラ - GenCan風 小黒板カメラ統合版
 
 import {
-  APP_VERSION, PROJECT,
-  DRIVE_PARENT_FOLDER_ID,
-  BUILDING_PRESETS, SHOOTING_TYPES,
+  APP_VERSION,
+  SHEETS_ID,
+  FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_TYPES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
 } from "./config.js";
@@ -14,6 +14,9 @@ import {
   getCachedFolderId, setCachedFolderId,
   getLastBuilding, setLastBuilding, getLastRoom, setLastRoom, getLastType, setLastType,
   nextSeq, rollbackSeq, peekSeq,
+  saveConfigCache, loadConfigCache,
+  loadBoardRect, saveBoardRect, loadBoardScale, saveBoardScale,
+  loadNoBoardFlag, saveNoBoardFlag,
 } from "./storage.js";
 import {
   showScreen, toast, toastSuccess, toastError, toastInfo,
@@ -23,7 +26,8 @@ import {
 import { initAuth, requestAccessToken, signOut, isSignedIn, getCachedToken } from "./auth.js";
 import { uploadBlob, createSubfolder } from "./drive.js";
 import { startCamera, switchCamera, stopCamera, grabFrame } from "./camera.js";
-import { composePhoto } from "./composer.js";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js";
+import { readAllConfig } from "./sheets.js";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, deletePhoto,
@@ -35,27 +39,43 @@ const { $, $$ } = dom;
 /* ============================================================ State */
 
 const state = {
+  // Sheets 設定
+  project:       { ...FALLBACK_PROJECT },
+  buildings:     { ...FALLBACK_BUILDINGS },
+  types:         [...FALLBACK_TYPES],
+  configSource:  "fallback",
+  configCachedAt: null,
+
+  // ユーザー選択
   photographer:  getPhotographer(),
   building:      getLastBuilding(),
   room:          getLastRoom(),
   type:          getLastType(),
-  lastCaptured:  null,
+
+  // カメラ・黒板
   cameraOn:      false,
+  cameraTrack:   null,
+  boardRect:     loadBoardRect(),
+  boardScale:    loadBoardScale(),
+  noBoard:       loadNoBoardFlag(),
+
+  // 撮影
   uploading:     false,
   cancelBatch:   false,
 };
 
 window.addEventListener("DOMContentLoaded", async () => {
   initEvents();
+
+  autoCleanupOldUploads(AUTO_CLEANUP_DAYS).catch(e => console.warn(e));
+
+  await loadAppConfig();
   populateProjectInfo();
-
-  // 古い送信済み写真の自動削除(バックグラウンド)
-  autoCleanupOldUploads(AUTO_CLEANUP_DAYS).then((n) => {
-    if (n > 0) console.log(`Auto-cleaned ${n} old uploaded photos`);
-  }).catch(e => console.warn(e));
-
   refreshHomeCards();
   await refreshOutboxCard();
+
+  // 黒板UI初期化
+  initBoardUI();
 
   try {
     await initAuth();
@@ -64,26 +84,71 @@ window.addEventListener("DOMContentLoaded", async () => {
     console.warn("Auth init failed:", e);
   }
 
-  if (isSignedIn()) {
-    showScreen("home");
-  } else {
-    showScreen("splash");
-  }
+  if (isSignedIn()) showScreen("home");
+  else              showScreen("splash");
 });
 
-/* ============================================================ Project info */
+/* ============================================================ 設定読み込み */
 
-function populateProjectInfo() {
-  $("#projName").textContent     = PROJECT.name;
-  $("#projNumber").textContent   = PROJECT.number;
-  $("#projLocation").textContent = PROJECT.location;
-  $("#projCompany").textContent  = PROJECT.company;
-  $("#appVersion").textContent   = "v" + APP_VERSION;
-  const vm = $("#appVersionMenu");
-  if (vm) vm.textContent = "v" + APP_VERSION;
+async function loadAppConfig({ forceFresh = false } = {}) {
+  if (!SHEETS_ID) {
+    console.warn("SHEETS_ID 未設定、フォールバックを使用");
+    return;
+  }
+  try {
+    if (forceFresh) showLoading("設定を再読み込み中…");
+    const cfg = await readAllConfig();
+    if (cfg.project && cfg.project.name) state.project = { ...FALLBACK_PROJECT, ...cfg.project };
+    if (cfg.buildings && Object.keys(cfg.buildings).length > 0) state.buildings = cfg.buildings;
+    if (Array.isArray(cfg.types) && cfg.types.length > 0) state.types = cfg.types;
+    state.configSource = "sheets";
+    state.configCachedAt = Date.now();
+    saveConfigCache({ project: state.project, buildings: state.buildings, types: state.types });
+    if (forceFresh) toastSuccess("Sheets から設定を読み込みました");
+  } catch (e) {
+    console.warn("Sheets 読み込み失敗:", e);
+    const cached = loadConfigCache();
+    if (cached && cached.cfg) {
+      state.project   = { ...FALLBACK_PROJECT, ...cached.cfg.project };
+      state.buildings = cached.cfg.buildings || FALLBACK_BUILDINGS;
+      state.types     = cached.cfg.types     || FALLBACK_TYPES;
+      state.configSource = "cache";
+      state.configCachedAt = cached.cachedAt;
+      if (forceFresh) toastError(`Sheets 失敗(キャッシュを使用): ${e.message}`);
+      else            toastInfo("オフライン: 前回の設定を使用");
+    } else {
+      state.configSource = "fallback";
+      if (forceFresh) toastError(`Sheets 失敗: ${e.message}`);
+      else            toastInfo("初期値を使用");
+    }
+  } finally {
+    if (forceFresh) hideLoading();
+  }
 }
 
-/* ============================================================ Home cards */
+async function reloadAppConfig() {
+  await loadAppConfig({ forceFresh: true });
+  populateProjectInfo();
+  refreshHomeCards();
+}
+
+/* ============================================================ 表示 */
+
+function populateProjectInfo() {
+  $("#projName").textContent     = state.project.name     || "(工事名未設定)";
+  $("#projNumber").textContent   = state.project.number   || "";
+  $("#projLocation").textContent = state.project.location || "";
+  $("#projCompany").textContent  = state.project.company  || "";
+  $("#appVersion").textContent   = "v" + APP_VERSION;
+  const vm = $("#appVersionMenu"); if (vm) vm.textContent = "v" + APP_VERSION;
+  const numEl = $("#projNumberHome"); if (numEl) numEl.textContent = state.project.number || "";
+  const srcEl = $("#configSource");
+  if (srcEl) {
+    const map = { sheets: "Sheets から読み込み済み", cache: "オフライン(前回値)", fallback: "初期値" };
+    srcEl.textContent = map[state.configSource] || "";
+    srcEl.classList.toggle("warn", state.configSource !== "sheets");
+  }
+}
 
 function refreshHomeCards() {
   $("#cardPhotographerVal").textContent = state.photographer || "未設定";
@@ -107,22 +172,13 @@ function refreshHomeCards() {
   $("#btnGoCamera").disabled = !ready;
 }
 
-/* ============================================================ Outbox card */
-
 async function refreshOutboxCard() {
   let count = 0;
-  try {
-    count = await countPending();
-  } catch (e) {
-    console.warn("countPending failed:", e);
-  }
+  try { count = await countPending(); } catch (e) { console.warn(e); }
   const card = $("#outboxCard");
   const cnt  = $("#outboxCount");
   if (!card || !cnt) return;
-  if (count === 0) {
-    card.hidden = true;
-    return;
-  }
+  if (count === 0) { card.hidden = true; return; }
   card.hidden = false;
   cnt.textContent = `${count} 枚`;
   card.classList.toggle("warn", count >= PENDING_WARN);
@@ -131,11 +187,9 @@ async function refreshOutboxCard() {
 /* ============================================================ Events */
 
 function initEvents() {
-  // スプラッシュ
   $("#btnLoginSplash").addEventListener("click", onLogin);
   $("#btnSkipLogin").addEventListener("click", onSkipLogin);
 
-  // ホーム
   $("#cardPhotographer").addEventListener("click", pickPhotographer);
   $("#cardBuilding").addEventListener("click", pickBuilding);
   $("#cardRoom").addEventListener("click", pickRoom);
@@ -143,37 +197,52 @@ function initEvents() {
   $("#btnGoCamera").addEventListener("click", goCamera);
   $("#outboxCard").addEventListener("click", openOutbox);
 
-  // メニュー
   $("#btnMenu").addEventListener("click", openMenu);
   $$("[data-close-menu]").forEach(el => el.addEventListener("click", closeMenu));
   $("#menuSignOut").addEventListener("click", onSignOut);
   $("#menuChangePhoto").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
+  const reloadBtn = $("#menuReloadConfig");
+  if (reloadBtn) reloadBtn.addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
 
-  // 認証ドット
   $("#authStatusBtn").addEventListener("click", onAuthDotClick);
 
   // カメラ画面
   $("#btnCameraBack").addEventListener("click", leaveCamera);
-  $("#btnShutter").addEventListener("click", onShutter);
   $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
-  $("#camTypeBadge").addEventListener("click", pickType);
+  $("#btnShoot").addEventListener("click", () => onShoot(false));
+  $("#btnShootHQ").addEventListener("click", () => onShoot(true));
 
-  // プレビュー画面
-  $("#btnRetake").addEventListener("click", () => {
-    state.lastCaptured = null;
-    showScreen("camera");
+  // 黒板UIイベント
+  $("#boardSizeRange").addEventListener("input", onBoardSizeChange);
+  $("#boardNoBoard").addEventListener("change", onNoBoardChange);
+
+  // 黒板入力欄(入力で再描画)
+  ["boardProjName", "boardPlace", "boardType", "boardPhotog", "boardFree", "boardCompany"].forEach(id => {
+    $("#" + id).addEventListener("input", renderBoard);
   });
-  $("#btnUpload").addEventListener("click", onUploadLastCaptured);
+
+  // -/+ ボタン
+  $$(".bfs[data-step]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const k = btn.dataset.step;
+      const d = parseFloat(btn.dataset.d);
+      onLineScaleChange(k, d);
+    });
+  });
 
   // Outbox
   $("#btnOutboxBack").addEventListener("click", () => { showScreen("home"); refreshOutboxCard(); refreshHomeCards(); });
   $("#btnUploadAll").addEventListener("click", uploadAllPending);
   $("#btnRefreshOutbox").addEventListener("click", () => renderOutbox());
 
+  // 黒板のドラッグ移動
+  initBoardDrag();
+
   window.addEventListener("pagehide", () => { stopCamera(); revokeAllObjectUrls(); });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && state.cameraOn) stopCamera();
   });
+  window.addEventListener("resize", () => { layoutBoard(); });
 }
 
 /* ============================================================ Login */
@@ -191,11 +260,8 @@ async function onLogin() {
     } else {
       showScreen("home"); refreshHomeCards(); refreshOutboxCard();
     }
-  } catch (e) {
-    toastError(e.message);
-  } finally {
-    hideLoading();
-  }
+  } catch (e) { toastError(e.message); }
+  finally { hideLoading(); }
 }
 
 function onSkipLogin() {
@@ -215,30 +281,20 @@ async function onSignOut() {
 }
 
 async function onAuthDotClick() {
-  if (isSignedIn()) {
-    toastInfo("ログイン中(緑)");
-  } else {
-    onLogin();
-  }
+  if (isSignedIn()) toastInfo("ログイン中(緑)");
+  else onLogin();
 }
 
-function updateAuthIndicator() {
-  setAuthIndicator(isSignedIn());
-}
+function updateAuthIndicator() { setAuthIndicator(isSignedIn()); }
 
 /* ============================================================ Pickers */
 
 async function pickPhotographer() {
   const known = getKnownPhotographers();
-  const options = known.map(n => ({
-    value: n, label: n,
-    sublabel: (n === state.photographer) ? "現在の選択" : "",
-  }));
+  const options = known.map(n => ({ value: n, label: n, sublabel: n === state.photographer ? "現在の選択" : "" }));
   const v = await pickFromList({
-    title: "撮影者を選ぶ",
-    options,
-    allowInput: true,
-    inputPlaceholder: "新しい撮影者名を入力(例: 横田)",
+    title: "撮影者を選ぶ", options,
+    allowInput: true, inputPlaceholder: "新しい撮影者名を入力(例: 横田)",
     selectedValue: state.photographer,
     footerButton: known.length > 0 ? {
       label: "候補を整理する",
@@ -249,7 +305,6 @@ async function pickPhotographer() {
     state.photographer = v;
     setPhotographer(v);
     refreshHomeCards();
-    toastInfo(`撮影者を「${v}」に設定`);
   }
 }
 
@@ -262,54 +317,46 @@ async function managePhotographers() {
   });
   if (v) {
     removeKnownPhotographer(v);
-    if (state.photographer === v) {
-      state.photographer = "";
-      setPhotographer("");
-    }
+    if (state.photographer === v) { state.photographer = ""; setPhotographer(""); }
     refreshHomeCards();
-    toastInfo(`「${v}」を削除`);
   }
 }
 
 async function pickBuilding() {
-  const buildings = Object.keys(BUILDING_PRESETS);
-  const options = buildings.map(b => ({ value: b, label: b }));
+  const buildings = Object.keys(state.buildings);
+  if (buildings.length === 0) { toastError("棟が設定されていません(Sheetsを確認)"); return; }
   const v = await pickFromList({
-    title: "棟を選ぶ", options, selectedValue: state.building,
+    title: "棟を選ぶ",
+    options: buildings.map(b => ({ value: b, label: b })),
+    selectedValue: state.building,
   });
   if (v && v !== state.building) {
     state.building = v;
     setLastBuilding(v);
-    state.room = "";
-    setLastRoom("");
+    state.room = ""; setLastRoom("");
     refreshHomeCards();
   }
 }
 
 async function pickRoom() {
   if (!state.building) { toastError("先に棟を選んでください"); return; }
-  const preset = BUILDING_PRESETS[state.building] || [];
+  const preset = state.buildings[state.building] || [];
   const custom = (getCustomRooms()[state.building] || []);
   const all = Array.from(new Set([...preset, ...custom])).sort(roomNumberSort);
-  const options = all.map(r => ({
-    value: r, label: r,
-    sublabel: custom.includes(r) ? "(追加)" : "",
-  }));
   const v = await pickFromList({
     title: `${state.building} の部屋を選ぶ`,
-    options,
+    options: all.map(r => ({ value: r, label: r, sublabel: custom.includes(r) ? "(端末で追加)" : "" })),
     allowInput: true,
-    inputPlaceholder: "部屋番号を追加(例: 511)",
+    inputPlaceholder: "部屋番号を一時的に追加",
     selectedValue: state.room,
     footerButton: custom.length > 0 ? {
-      label: "追加した部屋を整理",
+      label: "端末で追加した部屋を整理",
       onClick: (close) => { close(null); manageCustomRooms(state.building); },
     } : null,
   });
   if (v) {
     if (!preset.includes(v) && !custom.includes(v)) {
       addCustomRoom(state.building, v);
-      toastInfo(`部屋 ${v} を追加`);
     }
     state.room = v;
     setLastRoom(v);
@@ -319,34 +366,30 @@ async function pickRoom() {
 
 async function manageCustomRooms(building) {
   const custom = (getCustomRooms()[building] || []);
-  if (custom.length === 0) { toastInfo("追加した部屋はありません"); return; }
+  if (custom.length === 0) { toastInfo("端末追加の部屋はありません"); return; }
   const v = await pickFromList({
-    title: `${building} の追加部屋を削除`,
+    title: `${building} で端末追加した部屋を削除`,
     options: custom.map(r => ({ value: r, label: r, sublabel: "タップで削除" })),
   });
   if (v) {
     removeCustomRoom(building, v);
     if (state.room === v) { state.room = ""; setLastRoom(""); }
     refreshHomeCards();
-    toastInfo(`${v} を削除`);
   }
 }
 
 async function pickType() {
-  const options = SHOOTING_TYPES.map(t => ({ value: t, label: t }));
+  if (!state.types || state.types.length === 0) { toastError("撮影内容が未設定(Sheetsを確認)"); return; }
   const v = await pickFromList({
     title: "撮影内容を選ぶ",
-    options,
-    allowInput: true,
-    inputPlaceholder: "自由入力する撮影内容…",
+    options: state.types.map(t => ({ value: t, label: t })),
+    allowInput: true, inputPlaceholder: "自由入力する撮影内容…",
     selectedValue: state.type,
   });
   if (v) {
     state.type = v;
     setLastType(v);
     refreshHomeCards();
-    const badge = $("#camTypeBadge span");
-    if (badge) badge.textContent = v;
   }
 }
 
@@ -355,44 +398,62 @@ async function pickType() {
 function openMenu()  { $("#menu").classList.add("open"); }
 function closeMenu() { $("#menu").classList.remove("open"); }
 
-/* ============================================================ Camera flow */
+/* ============================================================ Camera */
 
 async function goCamera() {
   if (!(state.photographer && state.building && state.room && state.type)) {
     toastError("撮影者・棟・部屋・撮影内容を全て選んでください");
     return;
   }
-  // 未送信が上限に達していたら撮影をブロック
   if (await isAtLimit(PENDING_LIMIT)) {
-    toastError(`未送信写真が ${PENDING_LIMIT} 枚に達しています。先に送信してください。`);
+    toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。先に送信してください。`);
     openOutbox();
     return;
   }
+
+  // 黒板に現在の選択をセット
+  $("#boardProjName").value = state.project.name || "";
+  $("#boardPlace").value    = `${state.building}-${state.room}`;
+  $("#boardType").value     = state.type || "";
+  $("#boardPhotog").value   = state.photographer || "";
+  $("#boardCompany").value  = state.project.company || "";
+  // 自由欄は前回値を保持しない(撮影ごとにリセット)
+  // 必要なら工事番号など
+  if (!$("#boardFree").value) {
+    $("#boardFree").value = state.project.number || "";
+  }
+
+  // 「黒板なしも保存」状態を復元
+  $("#boardNoBoard").checked = state.noBoard;
+
+  // 現場バー
+  $("#camSitebarText").textContent = `${state.project.number || ""} ／ ${state.building}-${state.room}`;
+
   showScreen("camera");
+
   await startCameraFlow();
+  // 黒板オーバーレイを表示・配置
+  renderBoard();
+  // サイズスライダー
+  const sz = Math.round(state.boardRect.w * 100);
+  $("#boardSizeRange").value = sz;
+  $("#boardSizeVal").textContent = sz + "%";
 }
 
 async function startCameraFlow() {
   const video = $("#videoEl");
-  const info  = $("#camInfo");
-  info.textContent = "カメラ起動中…";
-  $("#camLocationBadge span").textContent = `${state.building}-${state.room}`;
-  $("#camTypeBadge span").textContent = state.type;
-  $("#camPhotographerBadge span").textContent = state.photographer;
-
   try {
-    await startCamera(video, {
+    const track = await startCamera(video, {
       facingMode: CAMERA_DEFAULTS.facing,
       width:  CAMERA_DEFAULTS.width,
       height: CAMERA_DEFAULTS.height,
     });
     state.cameraOn = true;
-    const w = video.videoWidth, h = video.videoHeight;
-    const roomKey = makeRoomKey(state.building, state.room);
-    const seq = peekSeq(roomKey, todayYmd()) + 1;
-    info.textContent = `${w}×${h}  ・  次は #${pad3(seq)}`;
+    state.cameraTrack = track;
+    setTimeout(layoutBoard, 60);
   } catch (e) {
     state.cameraOn = false;
+    state.cameraTrack = null;
     toastError(e.message);
     showScreen("home");
   }
@@ -401,6 +462,7 @@ async function startCameraFlow() {
 function leaveCamera() {
   stopCamera();
   state.cameraOn = false;
+  state.cameraTrack = null;
   showScreen("home");
   refreshHomeCards();
   refreshOutboxCard();
@@ -408,142 +470,348 @@ function leaveCamera() {
 
 async function onSwitchCamera() {
   if (!state.cameraOn) return;
-  try { await switchCamera($("#videoEl")); }
-  catch (e) { toastError(e.message); }
+  try {
+    const track = await switchCamera($("#videoEl"));
+    state.cameraTrack = track;
+    setTimeout(layoutBoard, 60);
+  } catch (e) { toastError(e.message); }
 }
 
-async function onShutter() {
-  if (!state.cameraOn) return;
+/* ============================================================ 黒板 UI */
+
+function initBoardUI() {
+  // localStorage から復元(constructor で読んでいる)、サイズスライダー初期化
+  const sz = Math.round(state.boardRect.w * 100);
+  const range = $("#boardSizeRange");
+  if (range) {
+    range.value = sz;
+    $("#boardSizeVal").textContent = sz + "%";
+  }
+}
+
+function onBoardSizeChange(e) {
+  const v = parseInt(e.target.value, 10);
+  state.boardRect.w = v / 100;
+  $("#boardSizeVal").textContent = v + "%";
+  saveBoardRect(state.boardRect);
+  layoutBoard();
+}
+
+function onNoBoardChange(e) {
+  state.noBoard = e.target.checked;
+  saveNoBoardFlag(state.noBoard);
+}
+
+function onLineScaleChange(k, d) {
+  state.boardScale[k] = Math.max(0.5, Math.min(1.6, (state.boardScale[k] || 1) + d));
+  saveBoardScale(state.boardScale);
+  layoutBoard();
+}
+
+// 黒板の HTML を生成(オーバーレイ表示)
+function renderBoard() {
+  const ov = $("#boardOverlay");
+  if (!ov) return;
+  const v = (id) => ($("#" + id) ? $("#" + id).value : "");
+  ov.innerHTML =
+    `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l" data-k="la">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(v("boardProjName"))}</span></div></div>` +
+    `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l" data-k="lb">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(v("boardPlace"))}</span></div></div>` +
+    `<div class="bov-row" style="height:${pct(BROWH.c)}"><div class="bov-lb"><span class="bv-l" data-k="lc">撮影内容</span></div><div class="bov-vl"><span class="bv-t" data-k="c">${esc(v("boardType"))}</span></div></div>` +
+    `<div class="bov-row" style="height:${pct(BROWH.d)}"><div class="bov-lb"><span class="bv-l" data-k="ld">撮影者</span></div><div class="bov-vl"><span class="bv-t" data-k="d">${esc(v("boardPhotog"))}</span></div></div>` +
+    `<div class="bov-fr"  style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(v("boardFree"))}</span></div>` +
+    `<div class="bov-co"  style="height:${pct(BROWH.f)}"><span class="bv-t" data-k="f">${esc(v("boardCompany"))}</span></div>`;
+  ov.style.display = "block";
+  layoutBoard();
+}
+
+// 黒板の位置・サイズ・文字スケールを実DOMに反映
+function layoutBoard() {
+  const wrap = $("#bcamWrap");
+  const ov   = $("#boardOverlay");
+  if (!wrap || !ov) return;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  if (!W || !H) return;
+
+  // 黒板の幅と高さ
+  let bw = W * state.boardRect.w;
+  let bh = bw * BOARD_HR;
+  if (bh > H * 0.9) {
+    bh = H * 0.9;
+    bw = bh / BOARD_HR;
+    state.boardRect.w = bw / W;
+  }
+  // 位置のクランプ
+  let x = clamp(state.boardRect.x, 0, 1 - bw / W);
+  let y = clamp(state.boardRect.y, 0, 1 - bh / H);
+  state.boardRect.x = x;
+  state.boardRect.y = y;
+
+  ov.style.left   = (x * W) + "px";
+  ov.style.top    = (y * H) + "px";
+  ov.style.width  = bw + "px";
+  ov.style.height = bh + "px";
+
+  // 各文字のフォントサイズ調整
+  setRowFont(ov, ".bv-l[data-k='la']", "la", BROWH.a, 0.4);
+  setRowFont(ov, ".bv-l[data-k='lb']", "lb", BROWH.b, 0.4);
+  setRowFont(ov, ".bv-l[data-k='lc']", "lc", BROWH.c, 0.4);
+  setRowFont(ov, ".bv-l[data-k='ld']", "ld", BROWH.d, 0.4);
+  setRowFont(ov, ".bv-t[data-k='a']",  "a",  BROWH.a, 0.6, bw);
+  setRowFont(ov, ".bv-t[data-k='b']",  "b",  BROWH.b, 0.6, bw);
+  setRowFont(ov, ".bv-t[data-k='c']",  "c",  BROWH.c, 0.6, bw);
+  setRowFont(ov, ".bv-t[data-k='d']",  "d",  BROWH.d, 0.6, bw);
+  setRowFont(ov, ".bv-t[data-k='e']",  "e",  BROWH.e, 0.66, bw);
+  setRowFont(ov, ".bv-t[data-k='f']",  "f",  BROWH.f, 0.45, bw);
+
+  function setRowFont(rootEl, sel, k, frac, factor, parentW) {
+    const el = rootEl.querySelector(sel);
+    if (!el) return;
+    const rh = bh * frac;
+    const fs = Math.max(6, rh * factor * (state.boardScale[k] || 1));
+    el.style.fontSize = Math.floor(fs) + "px";
+    el.style.transform = "";
+    // はみ出し時は X 方向にスケール
+    if (parentW) {
+      const avail = (el.parentNode ? el.parentNode.clientWidth : bw) - 2;
+      if (avail > 0 && el.scrollWidth > avail) {
+        el.style.transform = "scaleX(" + (avail / el.scrollWidth) + ")";
+      }
+    }
+  }
+}
+
+function pct(v) { return (v * 100).toFixed(2) + "%"; }
+
+function initBoardDrag() {
+  document.addEventListener("pointerdown", (e) => {
+    const ov = $("#boardOverlay");
+    if (!ov) return;
+    if (e.target !== ov && !ov.contains(e.target)) return;
+    const wrap = $("#bcamWrap");
+    if (!wrap) return;
+    e.preventDefault();
+
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    const sx = e.clientX, sy = e.clientY;
+    const ox = state.boardRect.x, oy = state.boardRect.y;
+
+    function mv(ev) {
+      state.boardRect.x = ox + (ev.clientX - sx) / W;
+      state.boardRect.y = oy + (ev.clientY - sy) / H;
+      layoutBoard();
+    }
+    function up() {
+      document.removeEventListener("pointermove", mv);
+      document.removeEventListener("pointerup", up);
+      saveBoardRect(state.boardRect);
+    }
+    document.addEventListener("pointermove", mv);
+    document.addEventListener("pointerup", up);
+  });
+}
+
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+/* ============================================================ 撮影 */
+
+async function onShoot(hq) {
+  if (!state.cameraOn) { toastError("カメラが起動していません"); return; }
+  if (state.uploading) { toastInfo("処理中です…"); return; }
 
   if (await isAtLimit(PENDING_LIMIT)) {
-    toastError(`未送信が ${PENDING_LIMIT} 枚に達しました。先に送信してください。`);
+    toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。`);
     return;
   }
 
-  const video = $("#videoEl");
-  try {
-    $("#btnShutter").disabled = true;
+  state.uploading = true;
+  const btn = hq ? $("#btnShootHQ") : $("#btnShoot");
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = "処理中…";
 
+  try {
+    // 撮影元(高画質なら ImageCapture、通常なら video)
+    const video = $("#videoEl");
+    let source;
+    if (hq && state.cameraTrack && typeof ImageCapture !== "undefined") {
+      try {
+        const ic = new ImageCapture(state.cameraTrack);
+        try {
+          const blob = await ic.takePhoto();
+          source = await blobToImage(blob);
+        } catch (e1) {
+          try {
+            source = await ic.grabFrame();
+          } catch (e2) {
+            console.warn("ImageCapture 失敗、通常撮影で続行", e1, e2);
+            source = video;
+          }
+        }
+      } catch (e) {
+        console.warn("ImageCapture 不可、通常撮影", e);
+        source = video;
+      }
+    } else {
+      source = video;
+    }
+
+    // 黒板の値・ラベル
+    const v = (id) => $("#" + id).value;
+    const labels = { a: "工事名", b: "場所", c: "撮影内容", d: "撮影者" };
+    const values = {
+      a: v("boardProjName"),
+      b: v("boardPlace"),
+      c: v("boardType"),
+      d: v("boardPhotog"),
+      e: v("boardFree"),
+      f: v("boardCompany"),
+    };
+
+    // 焼き込み
+    const result = await composePhoto(source, {
+      boardRect:  { ...state.boardRect },
+      lineScale:  { ...state.boardScale },
+      labels, values,
+      jpegQuality: JPEG_QUALITY,
+      cropToRatio: true,
+      alsoNoBoard: state.noBoard,
+    });
+
+    shutterSound();
+
+    // 連番・ファイル名
     const board = {
       building:     state.building,
       room:         state.room,
       type:         state.type,
       photographer: state.photographer,
       date:         todayYmd(),
+      project:      state.project,
+      // 黒板に実際に焼き込まれた値も保持(後で再確認できるよう)
+      boardValues:  values,
     };
     const roomKey = makeRoomKey(board.building, board.room);
     board.seq = nextSeq(roomKey, board.date);
 
-    const frame = await grabFrame(video);
-    const { blob, dataUrl } = await composePhoto(frame, board, {
-      pos: "bottom",
-      heightRatio: 0.30,
-      jpegQuality: JPEG_QUALITY,
-    });
+    const fileNameMain = buildFilename(FILENAME_TEMPLATE, board);
+    const fileNameNB   = fileNameMain.replace(/\.jpe?g$/i, "_nb.jpg");
 
-    const fileName = buildFilename(FILENAME_TEMPLATE, board);
-    state.lastCaptured = { blob, dataUrl, board, fileName, roomKey };
+    // 写真1: 黒板あり
+    const photoIdMain = await addPhotoStore(result.withBoard.blob, board, fileNameMain, roomKey);
 
-    $("#previewImg").src = dataUrl;
-    $("#previewStatusText").textContent =
-      `${board.building}-${board.room}  ・  ${board.type}  ・  #${pad3(board.seq)}`;
+    // 写真2: 黒板なし(オプション)
+    let photoIdNB = null;
+    if (state.noBoard && result.noBoard) {
+      photoIdNB = await addPhotoStore(result.noBoard.blob, board, fileNameNB, roomKey);
+    }
 
-    // プレビュー画面のボタン文言を状況に応じて変える
-    const btnUpload = $("#btnUpload");
+    // ログイン中なら即送信
     if (isSignedIn()) {
-      btnUpload.textContent = "Drive に保存";
+      try {
+        await uploadOne(photoIdMain);
+        if (photoIdNB) await uploadOne(photoIdNB);
+        toastSuccess(`保存完了: ${fileNameMain}${photoIdNB ? "(2枚)" : ""}`);
+      } catch (e) {
+        toastError(`Drive 送信失敗(未送信として保持): ${e.message}`);
+      }
     } else {
-      btnUpload.textContent = "端末に保存(後で送信)";
+      toastSuccess(`端末に保存(後で送信): ${fileNameMain}${photoIdNB ? "(2枚)" : ""}`);
     }
 
-    showScreen("preview");
+    // 連続撮影のため、自由欄だけクリア(または保持。GenCanは保持)
+    // ここでは保持。次の撮影をすぐできる。
   } catch (e) {
+    console.error(e);
     toastError("撮影失敗: " + e.message);
-    rollbackSeq(makeRoomKey(state.building, state.room), todayYmd());
   } finally {
-    $("#btnShutter").disabled = false;
+    state.uploading = false;
+    btn.disabled = false;
+    btn.textContent = origText;
+    refreshOutboxCard();
   }
 }
 
-/* ============================================================ Preview の保存ボタン */
+async function addPhotoStore(blob, board, fileName, roomKey) {
+  return await addPhoto({ blob, board, fileName, roomKey });
+}
 
-async function onUploadLastCaptured() {
-  if (!state.lastCaptured) return;
-  const cap = state.lastCaptured;
-
-  // まず IndexedDB に保存(オフライン耐性確保)
-  let photoId = null;
+// シャッター音
+function shutterSound() {
   try {
-    photoId = await addPhoto({
-      blob: cap.blob,
-      board: cap.board,
-      fileName: cap.fileName,
-      roomKey: cap.roomKey,
-    });
-  } catch (e) {
-    toastError("端末保存失敗: " + e.message);
-    return;
-  }
-
-  // 状態リセット
-  state.lastCaptured = null;
-
-  // ログイン中なら即送信を試みる
-  if (isSignedIn()) {
-    try {
-      await uploadOne(photoId);
-      toastSuccess(`Drive に保存しました: ${cap.fileName}`);
-    } catch (e) {
-      // 送信失敗 = 未送信として残す(エラーメッセージ表示するが続行可能)
-      toastError(`Drive 送信失敗(未送信として保存): ${e.message}`);
-    }
-  } else {
-    toastSuccess(`端末に保存しました(後でまとめて送信): ${cap.fileName}`);
-  }
-
-  // 次の撮影へ
-  showScreen("camera");
-  const v = $("#videoEl");
-  const next = peekSeq(cap.roomKey, todayYmd()) + 1;
-  $("#camInfo").textContent = `${v.videoWidth}×${v.videoHeight}  ・  次は #${pad3(next)}`;
-  if (!state.cameraOn) await startCameraFlow();
-
-  // 未送信カウントを更新(別画面に行ったときの表示用)
-  refreshOutboxCard();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!window._shCtx) window._shCtx = new AC();
+    const actx = window._shCtx;
+    if (actx.state === "suspended") actx.resume();
+    const t = actx.currentTime;
+    burst(actx, t,       0.022, 4200, 0.7, 1.0);
+    burst(actx, t + 0.05, 0.06, 1500, 0.6, 0.85);
+  } catch (e) {}
+}
+function burst(actx, at, dur, freq, q, vol) {
+  const n = Math.max(1, Math.floor(actx.sampleRate * dur));
+  const buf = actx.createBuffer(1, n, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.5);
+  const nsrc = actx.createBufferSource(); nsrc.buffer = buf;
+  const f = actx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+  const g = actx.createGain(); g.gain.value = vol;
+  nsrc.connect(f); f.connect(g); g.connect(actx.destination);
+  nsrc.start(at);
 }
 
-/* ============================================================ Upload one photo from store */
+function blobToImage(blob) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像読み込み失敗")); };
+    img.src = url;
+  });
+}
+
+/* ============================================================ Upload */
 
 async function uploadOne(photoId) {
   const photo = await getPhoto(photoId);
-  if (!photo) throw new Error("写真が見つかりません(ID: " + photoId + ")");
-  if (!photo.blob) throw new Error("写真のデータが既に削除されています");
+  if (!photo) throw new Error("写真が見つかりません");
+  if (!photo.blob) throw new Error("写真データが既に削除されています");
 
   let token = getCachedToken();
   if (!token) {
     token = await requestAccessToken();
     updateAuthIndicator();
   }
-
   await markUploading(photoId);
 
-  // 部屋フォルダ確保
+  const parentFolderId = (photo.board.project && photo.board.project.driveFolderId)
+                       || state.project.driveFolderId
+                       || FALLBACK_PROJECT.driveFolderId;
+  if (!parentFolderId) throw new Error("親フォルダ ID が未設定");
+
   const folderName = photo.roomKey;
-  let folderId = getCachedFolderId(folderName);
+  const cacheKey = `${parentFolderId}::${folderName}`;
+  let folderId = getCachedFolderId(cacheKey);
   if (!folderId) {
     folderId = await createSubfolder({
       name: folderName,
-      parentId: DRIVE_PARENT_FOLDER_ID,
+      parentId: parentFolderId,
       accessToken: token,
     });
-    setCachedFolderId(folderName, folderId);
+    setCachedFolderId(cacheKey, folderId);
   }
 
+  const proj = photo.board.project || state.project;
   const description = [
-    `工事名: ${PROJECT.name}`,
-    `工事番号: ${PROJECT.number}`,
-    `工事場所: ${PROJECT.location}`,
-    `会社: ${PROJECT.company}`,
+    `工事名: ${proj.name}`,
+    `工事番号: ${proj.number}`,
+    `工事場所: ${proj.location}`,
+    `会社: ${proj.company}`,
     `撮影場所: ${photo.board.building}-${photo.board.room}`,
     `撮影内容: ${photo.board.type}`,
     `撮影者: ${photo.board.photographer}`,
@@ -553,7 +821,7 @@ async function uploadOne(photoId) {
   ].join("\n");
 
   const properties = {
-    project: PROJECT.number,
+    project: proj.number || "",
     bldg:    photo.board.building,
     room:    photo.board.room,
     type:    photo.board.type,
@@ -582,7 +850,7 @@ async function uploadOne(photoId) {
   }
 }
 
-/* ============================================================ Outbox 画面 */
+/* ============================================================ Outbox */
 
 async function openOutbox() {
   showScreen("outbox");
@@ -592,7 +860,6 @@ async function openOutbox() {
 async function renderOutbox() {
   const list = await getPendingPhotos();
   $("#outboxSummary").textContent = `${list.length} 枚`;
-
   const empty = $("#outboxEmpty");
   const listEl = $("#outboxList");
   const allBtn = $("#btnUploadAll");
@@ -604,24 +871,18 @@ async function renderOutbox() {
     return;
   }
   empty.hidden = true;
-  allBtn.disabled = !isSignedIn();
+  allBtn.disabled = false;
   allBtn.textContent = isSignedIn()
     ? `すべて Drive に送信(${list.length} 枚)`
-    : "ログインが必要です(タップでログイン)";
-
-  if (!isSignedIn()) {
-    allBtn.disabled = false;  // ログイン操作はできる
-  }
+    : "ログインしてから送信(タップでログイン)";
 
   listEl.innerHTML = "";
   for (const p of list) {
     const item = document.createElement("div");
     item.className = "outbox-item";
     item.dataset.id = p.id;
-
     const url = getObjectUrl(p.id, p.blob);
     const statusLabel = p.status === "failed" ? "失敗" : (p.status === "uploading" ? "送信中" : "未送信");
-
     item.innerHTML = `
       <div class="oi-thumb">
         ${url ? `<img src="${url}" alt="" />` : ""}
@@ -639,7 +900,6 @@ async function renderOutbox() {
     listEl.appendChild(item);
   }
 
-  // 削除ボタン
   $$("#outboxList [data-action='delete']").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -650,33 +910,22 @@ async function renderOutbox() {
         await deletePhoto(id);
         await renderOutbox();
         await refreshOutboxCard();
-        toastInfo("削除しました");
-      } catch (err) {
-        toastError("削除失敗: " + err.message);
-      }
+      } catch (err) { toastError("削除失敗: " + err.message); }
     });
   });
 }
 
 async function uploadAllPending() {
   if (!isSignedIn()) {
-    // ログインしてもらう
     try {
       await initAuth();
       await requestAccessToken();
       updateAuthIndicator();
       toastSuccess("ログインしました。送信を開始します。");
-    } catch (e) {
-      toastError("ログインが必要です: " + e.message);
-      return;
-    }
+    } catch (e) { toastError("ログインが必要です: " + e.message); return; }
   }
-
   const list = await getPendingPhotos();
-  if (list.length === 0) {
-    toastInfo("未送信の写真はありません");
-    return;
-  }
+  if (list.length === 0) { toastInfo("未送信なし"); return; }
 
   const progress = $("#outboxProgress");
   const fill = $("#opFill");
@@ -687,47 +936,26 @@ async function uploadAllPending() {
 
   let ok = 0, ng = 0;
   const total = list.length;
-
   for (let i = 0; i < total; i++) {
     if (state.cancelBatch) break;
     const p = list[i];
     fill.style.width = `${Math.round((i / total) * 100)}%`;
     text.textContent = `送信中 ${i + 1} / ${total}: ${p.board.building}-${p.board.room} #${pad3(p.board.seq)}`;
-
-    try {
-      await uploadOne(p.id);
-      ok++;
-    } catch (e) {
-      console.warn("Upload failed for", p.id, e);
+    try { await uploadOne(p.id); ok++; }
+    catch (e) {
       ng++;
-      // 401(認証切れ)は即停止して再ログイン
       if (/401/.test(e.message)) {
-        text.textContent = "認証切れ。再ログインしてください。";
-        try {
-          await requestAccessToken({ forcePrompt: true });
-          updateAuthIndicator();
-          // この1枚も再試行する? いったん次へ進める(失敗カウントだけ計上)
-        } catch (e2) {
-          toastError("再認証失敗: " + e2.message);
-          break;
-        }
+        try { await requestAccessToken({ forcePrompt: true }); updateAuthIndicator(); }
+        catch (e2) { toastError("再認証失敗: " + e2.message); break; }
       }
     }
   }
-
   fill.style.width = "100%";
   text.textContent = `完了: 成功 ${ok} 件 / 失敗 ${ng} 件`;
   $("#btnUploadAll").disabled = false;
-
-  if (ng === 0) {
-    toastSuccess(`${ok} 枚すべて送信しました 🎉`);
-  } else {
-    toastInfo(`成功 ${ok} 件、失敗 ${ng} 件。失敗は再試行できます。`);
-  }
-
-  // 3秒後にプログレスを隠す
+  if (ng === 0) toastSuccess(`${ok} 枚すべて送信しました 🎉`);
+  else          toastInfo(`成功 ${ok} 件、失敗 ${ng} 件`);
   setTimeout(() => { progress.hidden = true; }, 3000);
-
   await renderOutbox();
   await refreshOutboxCard();
 }
@@ -750,16 +978,9 @@ function makeRoomKey(building, room) {
 }
 
 function buildFilename(tpl, board) {
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
-  const time = `${hh}${mm}${ss}`;
   const dateCompact = (board.date || todayYmd()).replace(/-/g, "");
-
   let name = (tpl || "{date}_{bldg}-{room}_{type}_{seq}.jpg")
     .replace(/\{date\}/g,         dateCompact)
-    .replace(/\{time\}/g,         time)
     .replace(/\{bldg\}/g,         board.building || "")
     .replace(/\{room\}/g,         board.room || "")
     .replace(/\{type\}/g,         board.type || "")
@@ -778,8 +999,7 @@ function buildFilename(tpl, board) {
 }
 
 function roomNumberSort(a, b) {
-  const na = parseInt(a, 10);
-  const nb = parseInt(b, 10);
+  const na = parseInt(a, 10), nb = parseInt(b, 10);
   if (Number.isFinite(na) && Number.isFinite(nb)) {
     if (na !== nb) return na - nb;
   }

@@ -1,55 +1,57 @@
 // js/config.js
-// 北方カメラ - 全設定をコード埋め込み(利用者は設定不要)
+// 北方カメラ - 設定値
 
-export const APP_VERSION = "1.1.0";
+export const APP_VERSION = "1.3.0";
 export const APP_NAME = "北方カメラ";
-
-// ===== 工事情報(固定・変更不可) =====
-export const PROJECT = Object.freeze({
-  name:    "県営北方住宅室内照明LED化改修工事",
-  number:  "県住工第1号",
-  location:"本巣郡北方町",
-  company: "河口電機株式会社",
-});
 
 // ===== Google OAuth(既存のKE-Cameraのものを流用) =====
 export const OAUTH_CLIENT_ID = "162115394945-581sp1s3u4je8c158ee336dadpc6mrss.apps.googleusercontent.com";
 export const OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file";
 
-// ===== Drive 設定 =====
-// 既存「KE-Camera 工事写真」フォルダを親として流用
-export const DRIVE_PARENT_FOLDER_ID = "1kI1oXJOify1XWtcTuUsbVAuKYRXv1XmS";
+// ===== Sheets 連携(現場の設定を Sheets から読む) =====
+// KE-Camera v0.1.0 で作ったAPIキーを流用(Sheets API 限定 + HTTPリファラ制限済み)
+export const SHEETS_API_KEY = "AIzaSyA1EPCXjMfkhso-kiu7SHRDmdts027GpQs";
 
-// Drive API エンドポイント
-export const DRIVE_UPLOAD_ENDPOINT = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true";
-export const DRIVE_FILES_ENDPOINT  = "https://www.googleapis.com/drive/v3/files";
+// 「北方カメラ 設定」シートのスプレッドシート ID
+// ⚠️ Kさんが Sheets を新規作成したら、その ID をここに記入してください。
+// 編集後は GitHub に push → Pages が更新されると新シートが反映されます。
+export const SHEETS_ID = "";  // ← ここに新シートの ID を入れる
 
-// ===== 棟と部屋のプリセット(仮設定・後で調整可能) =====
-// 過去のLED施工管理シート分析より、対象は A1/A2/A4/S1/S2/S3/S4 の7棟
-// 階数・部屋数はざっくり仮設定(後でアプリ内「部屋を追加」で増減可)
-export const BUILDING_PRESETS = Object.freeze({
-  "A1棟": generateRooms(5, 4),   // 1F〜5F、各階4部屋
-  "A2棟": generateRooms(10, 4),  // 1F〜10F、各階4部屋
-  "A4棟": generateRooms(10, 4),  // 1F〜10F、各階4部屋
-  "S1棟": generateRooms(5, 4),
-  "S2棟": generateRooms(5, 4),
-  "S3棟": generateRooms(5, 4),
-  "S4棟": generateRooms(5, 4),
+// シート名(タブ名)。固定。
+export const SHEET_TAB_PROJECT  = "工事情報";    // A列ラベル / B列値
+export const SHEET_TAB_BUILDING = "棟と部屋";    // A列=棟、B列以降=部屋番号
+export const SHEET_TAB_TYPES    = "撮影内容";    // A列=撮影内容
+
+// 各シートの読み取り範囲
+export const SHEET_RANGE_PROJECT  = `${SHEET_TAB_PROJECT}!A2:B`;
+export const SHEET_RANGE_BUILDING = `${SHEET_TAB_BUILDING}!A2:Z`;
+export const SHEET_RANGE_TYPES    = `${SHEET_TAB_TYPES}!A2:A`;
+
+// Sheets/Drive API エンドポイント
+export const SHEETS_VALUES_ENDPOINT = "https://sheets.googleapis.com/v4/spreadsheets";
+export const DRIVE_UPLOAD_ENDPOINT  = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true";
+export const DRIVE_FILES_ENDPOINT   = "https://www.googleapis.com/drive/v3/files";
+
+// ===== Sheets が読めない場合のフォールバック(初回起動・オフライン時) =====
+export const FALLBACK_PROJECT = Object.freeze({
+  name:    "県営北方住宅室内照明LED化改修工事",
+  number:  "県住工第1号",
+  location:"本巣郡北方町",
+  company: "河口電機株式会社",
+  driveFolderId: "1kI1oXJOify1XWtcTuUsbVAuKYRXv1XmS",
 });
 
-// 部屋番号生成: 1F=101〜104、2F=201〜204 ...
-function generateRooms(floors, perFloor) {
-  const rooms = [];
-  for (let f = 1; f <= floors; f++) {
-    for (let n = 1; n <= perFloor; n++) {
-      rooms.push(`${f}${String(n).padStart(2, "0")}`);
-    }
-  }
-  return rooms;
-}
+export const FALLBACK_BUILDINGS = Object.freeze({
+  "A1棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504"],
+  "A2棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504","601","602","603","604","701","702","703","704","801","802","803","804","901","902","903","904","1001","1002","1003","1004"],
+  "A4棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504","601","602","603","604","701","702","703","704","801","802","803","804","901","902","903","904","1001","1002","1003","1004"],
+  "S1棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504"],
+  "S2棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504"],
+  "S3棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504"],
+  "S4棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504"],
+});
 
-// ===== 撮影内容プリセット(仮設定・後で調整可能) =====
-export const SHOOTING_TYPES = Object.freeze([
+export const FALLBACK_TYPES = Object.freeze([
   "灯具(設置前)",
   "灯具(設置後)",
   "銘板",
@@ -63,16 +65,15 @@ export const SHOOTING_TYPES = Object.freeze([
 ]);
 
 // ===== ファイル名テンプレート =====
-// 使用可能トークン: {date} {bldg} {room} {type} {photographer} {seq} {time}
 export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{type}_{seq}.jpg";
 
 // ===== JPEG 品質 =====
 export const JPEG_QUALITY = 0.92;
 
 // ===== ローカル保存(未送信)の上限と自動削除 =====
-export const PENDING_LIMIT = 100;         // 未送信写真の上限(撮影をブロック)
-export const PENDING_WARN  = 80;          // 警告色を出す閾値
-export const AUTO_CLEANUP_DAYS = 7;       // 送信済み写真の Blob を保持する日数
+export const PENDING_LIMIT = 100;
+export const PENDING_WARN  = 80;
+export const AUTO_CLEANUP_DAYS = 7;
 
 // ===== カメラ初期設定 =====
 export const CAMERA_DEFAULTS = Object.freeze({
