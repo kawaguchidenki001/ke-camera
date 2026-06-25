@@ -1,101 +1,124 @@
 // js/storage.js
-// localStorage を介した設定値の永続化
+// localStorage 管理 — 撮影者・追加部屋・フォルダIDキャッシュ・連番・直近選択
 
-import { DEFAULTS, SEQ_KEY_PREFIX } from "./config.js";
+const KEYS = {
+  PHOTOGRAPHER:  "kc:photographer",   // 撮影者名
+  KNOWN_PHOTOGS: "kc:knownPhotogs",   // 撮影者の候補リスト(過去使った人)
+  CUSTOM_ROOMS:  "kc:customRooms",    // { "A1棟": ["111","112"], ... } 追加された部屋
+  FOLDER_CACHE:  "kc:folderCache",    // { "A1-101": "<folderId>", ... } サブフォルダID
+  LAST_BLDG:     "kc:lastBldg",
+  LAST_ROOM:     "kc:lastRoom",
+  LAST_TYPE:     "kc:lastType",
+  SEQ_PREFIX:    "kc:seq:",           // 連番(日付+部屋ごと)
+};
 
-const SETTINGS_KEY = "ke-camera:settings";
-const LAST_BOARD_KEY = "ke-camera:lastBoard";
-const LAST_PROJECT_KEY = "ke-camera:lastProject";
+/* ============================================================ 撮影者 */
 
-/** 設定を取得(デフォルトとマージ) */
-export function loadSettings() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return { ...DEFAULTS, ...parsed };
-  } catch (e) {
-    console.warn("loadSettings failed, returning defaults:", e);
-    return { ...DEFAULTS };
+export function getPhotographer() {
+  return localStorage.getItem(KEYS.PHOTOGRAPHER) || "";
+}
+
+export function setPhotographer(name) {
+  const v = (name || "").trim();
+  if (v) {
+    localStorage.setItem(KEYS.PHOTOGRAPHER, v);
+    addKnownPhotographer(v);
   }
 }
 
-/** 設定を保存(部分更新可) */
-export function saveSettings(patch) {
-  const current = loadSettings();
-  const next = { ...current, ...patch };
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-  return next;
+export function getKnownPhotographers() {
+  try {
+    const raw = localStorage.getItem(KEYS.KNOWN_PHOTOGS);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
 }
 
-/** 設定を初期化 */
-export function resetSettings() {
-  localStorage.removeItem(SETTINGS_KEY);
-  return { ...DEFAULTS };
-}
-
-/** 設定の書き出し用 JSON 文字列 */
-export function exportSettings() {
-  const s = loadSettings();
-  // OAuth Client ID と API キーは出力するが、利用者が判断して扱うべき情報
-  // (チームで共有する場合は必要、個人バックアップでも必要)
-  return JSON.stringify({
-    app: "KE-Camera",
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    settings: s,
-  }, null, 2);
-}
-
-/** 設定の読み込み(JSON テキスト) */
-export function importSettings(jsonText) {
-  const obj = JSON.parse(jsonText);
-  if (!obj || obj.app !== "KE-Camera" || !obj.settings) {
-    throw new Error("KE-Camera の設定ファイルではありません");
+export function addKnownPhotographer(name) {
+  const list = getKnownPhotographers();
+  if (!list.includes(name)) {
+    list.unshift(name);
+    if (list.length > 20) list.pop();
+    localStorage.setItem(KEYS.KNOWN_PHOTOGS, JSON.stringify(list));
+  } else {
+    // 既存なら先頭に移動
+    const filtered = list.filter(n => n !== name);
+    filtered.unshift(name);
+    localStorage.setItem(KEYS.KNOWN_PHOTOGS, JSON.stringify(filtered));
   }
-  const merged = { ...DEFAULTS, ...obj.settings };
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
-  return merged;
 }
 
-/* ------------------------------------------------------------ 黒板内容(下書き) */
+export function removeKnownPhotographer(name) {
+  const list = getKnownPhotographers().filter(n => n !== name);
+  localStorage.setItem(KEYS.KNOWN_PHOTOGS, JSON.stringify(list));
+}
 
-/** 直前に入力した黒板内容を保存(撮り直し時の復元用) */
-export function saveLastBoard(board) {
+/* ============================================================ 追加部屋 */
+
+export function getCustomRooms() {
   try {
-    localStorage.setItem(LAST_BOARD_KEY, JSON.stringify(board));
-  } catch (e) { /* ignore */ }
+    const raw = localStorage.getItem(KEYS.CUSTOM_ROOMS);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
 }
 
-export function loadLastBoard() {
+export function addCustomRoom(building, room) {
+  const data = getCustomRooms();
+  if (!data[building]) data[building] = [];
+  const v = (room || "").trim();
+  if (v && !data[building].includes(v)) {
+    data[building].push(v);
+    data[building].sort();
+    localStorage.setItem(KEYS.CUSTOM_ROOMS, JSON.stringify(data));
+  }
+}
+
+export function removeCustomRoom(building, room) {
+  const data = getCustomRooms();
+  if (data[building]) {
+    data[building] = data[building].filter(r => r !== room);
+    if (data[building].length === 0) delete data[building];
+    localStorage.setItem(KEYS.CUSTOM_ROOMS, JSON.stringify(data));
+  }
+}
+
+/* ============================================================ フォルダIDキャッシュ */
+
+export function getFolderCache() {
   try {
-    const raw = localStorage.getItem(LAST_BOARD_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
+    const raw = localStorage.getItem(KEYS.FOLDER_CACHE);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
 }
 
-/* ------------------------------------------------------------ 直近の工事 */
-
-export function saveLastProject(project) {
-  try {
-    localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify(project));
-  } catch (e) { /* ignore */ }
+export function getCachedFolderId(roomKey) {
+  return getFolderCache()[roomKey] || null;
 }
 
-export function loadLastProject() {
-  try {
-    const raw = localStorage.getItem(LAST_PROJECT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
+export function setCachedFolderId(roomKey, folderId) {
+  const cache = getFolderCache();
+  cache[roomKey] = folderId;
+  localStorage.setItem(KEYS.FOLDER_CACHE, JSON.stringify(cache));
 }
 
-/* ------------------------------------------------------------ 通し番号(連番) */
+export function clearFolderCache() {
+  localStorage.removeItem(KEYS.FOLDER_CACHE);
+}
 
-/**
- * 工事 + 日付 ごとに通し番号を採番。同じ現場の撮影連続性を保ちつつ、
- * 日付が変わったらリセットする運用に向く。
- */
-export function nextSeq(koujiMei, dateStr) {
-  const key = SEQ_KEY_PREFIX + (dateStr || "x") + ":" + (koujiMei || "x");
+/* ============================================================ 直近選択 */
+
+export function getLastBuilding() { return localStorage.getItem(KEYS.LAST_BLDG) || ""; }
+export function setLastBuilding(b) { localStorage.setItem(KEYS.LAST_BLDG, b); }
+
+export function getLastRoom()     { return localStorage.getItem(KEYS.LAST_ROOM) || ""; }
+export function setLastRoom(r)    { localStorage.setItem(KEYS.LAST_ROOM, r); }
+
+export function getLastType()     { return localStorage.getItem(KEYS.LAST_TYPE) || ""; }
+export function setLastType(t)    { localStorage.setItem(KEYS.LAST_TYPE, t); }
+
+/* ============================================================ 連番(部屋+日付ごと) */
+
+export function nextSeq(roomKey, dateStr) {
+  const key = KEYS.SEQ_PREFIX + (dateStr || "x") + ":" + (roomKey || "x");
   let n = parseInt(localStorage.getItem(key) || "0", 10);
   if (!Number.isFinite(n) || n < 0) n = 0;
   n += 1;
@@ -103,17 +126,15 @@ export function nextSeq(koujiMei, dateStr) {
   return n;
 }
 
-/** 連番のロールバック(アップロード失敗時など) */
-export function rollbackSeq(koujiMei, dateStr) {
-  const key = SEQ_KEY_PREFIX + (dateStr || "x") + ":" + (koujiMei || "x");
-  let n = parseInt(localStorage.getItem(key) || "0", 10);
+export function rollbackSeq(roomKey, dateStr) {
+  const key = KEYS.SEQ_PREFIX + (dateStr || "x") + ":" + (roomKey || "x");
+  const n = parseInt(localStorage.getItem(key) || "0", 10);
   if (Number.isFinite(n) && n > 0) {
     localStorage.setItem(key, String(n - 1));
   }
 }
 
-/** 現在の連番(進めずに読むだけ) */
-export function peekSeq(koujiMei, dateStr) {
-  const key = SEQ_KEY_PREFIX + (dateStr || "x") + ":" + (koujiMei || "x");
+export function peekSeq(roomKey, dateStr) {
+  const key = KEYS.SEQ_PREFIX + (dateStr || "x") + ":" + (roomKey || "x");
   return parseInt(localStorage.getItem(key) || "0", 10) || 0;
 }

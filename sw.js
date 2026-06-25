@@ -1,10 +1,9 @@
 // sw.js
-// シンプルなアプリシェル + ランタイムキャッシュ
+// 北方カメラ - シンプル PWA キャッシュ
 
-const VERSION = "v0.1.0";
-const APP_CACHE = `ke-camera-app-${VERSION}`;
+const VERSION = "v1.0.0";
+const APP_CACHE = `kitagata-cam-${VERSION}`;
 
-// アプリ起動に必要な静的アセット
 const PRECACHE = [
   "./",
   "./index.html",
@@ -15,7 +14,6 @@ const PRECACHE = [
   "./js/storage.js",
   "./js/ui.js",
   "./js/auth.js",
-  "./js/sheets.js",
   "./js/drive.js",
   "./js/camera.js",
   "./js/composer.js",
@@ -26,7 +24,9 @@ const PRECACHE = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(APP_CACHE).then((cache) => cache.addAll(PRECACHE)).then(() => self.skipWaiting())
+    caches.open(APP_CACHE)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -42,26 +42,21 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // GET 以外はそのまま通す(POST /upload など)
   if (req.method !== "GET") return;
 
-  // Google API への呼び出しはキャッシュしない(認証ヘッダや動的データのため)
+  // Google API はキャッシュしない
   if (url.hostname.endsWith("googleapis.com") ||
       url.hostname.endsWith("google.com") ||
       url.hostname === "accounts.google.com") {
     return;
   }
 
-  // 同一オリジンの静的リソース: cache-first
   if (url.origin === self.location.origin) {
     event.respondWith(cacheFirst(req));
     return;
   }
 
-  // それ以外: ネットワーク優先 + キャッシュフォールバック
-  event.respondWith(
-    fetch(req).catch(() => caches.match(req))
-  );
+  event.respondWith(fetch(req).catch(() => caches.match(req)));
 });
 
 async function cacheFirst(req) {
@@ -70,13 +65,11 @@ async function cacheFirst(req) {
   if (cached) return cached;
   try {
     const fresh = await fetch(req);
-    // 200 のみキャッシュ
     if (fresh && fresh.status === 200 && fresh.type === "basic") {
       cache.put(req, fresh.clone());
     }
     return fresh;
   } catch (e) {
-    // ネットワーク失敗時、ナビゲーションリクエストなら index を返す(オフライン起動)
     if (req.mode === "navigate") {
       const fallback = await cache.match("./index.html");
       if (fallback) return fallback;

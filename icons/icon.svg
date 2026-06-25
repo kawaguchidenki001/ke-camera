@@ -9,33 +9,44 @@
       <stop offset="0" stop-color="#1e4d2b"/>
       <stop offset="1" stop-color="#143a1f"/>
     </linearGradient>
+    <radialGradient id="bulb" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#fff8c5"/>
+      <stop offset="0.5" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#d39a17"/>
+    </radialGradient>
   </defs>
 
   <!-- 角丸背景 -->
   <rect x="0" y="0" width="512" height="512" rx="96" fill="url(#bg)"/>
 
-  <!-- カメラボディ -->
-  <g transform="translate(0,18)">
-    <!-- 黒板 -->
-    <rect x="78" y="232" width="356" height="184" rx="16" fill="url(#board)" stroke="#ffffff" stroke-width="6"/>
-    <!-- 黒板の行 -->
-    <line x1="98"  y1="276" x2="414" y2="276" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <line x1="98"  y1="320" x2="414" y2="320" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <line x1="98"  y1="364" x2="414" y2="364" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
-    <line x1="256" y1="276" x2="256" y2="364" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+  <!-- 黒板(下半分) -->
+  <g>
+    <rect x="60" y="240" width="392" height="200" rx="16" fill="url(#board)" stroke="#ffffff" stroke-width="6"/>
+    <!-- 黒板の中の罫線(4行) -->
+    <line x1="84" y1="282" x2="428" y2="282" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <line x1="84" y1="324" x2="428" y2="324" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <line x1="84" y1="366" x2="428" y2="366" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <line x1="84" y1="408" x2="428" y2="408" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+    <!-- 縦線 -->
+    <line x1="240" y1="282" x2="240" y2="408" stroke="rgba(255,255,255,0.45)" stroke-width="3"/>
+  </g>
 
-    <!-- カメラレンズ(黒板の上に配置) -->
-    <circle cx="256" cy="170" r="86" fill="#0f2916" stroke="#ffffff" stroke-width="8"/>
-    <circle cx="256" cy="170" r="62" fill="#1e4d2b"/>
-    <circle cx="256" cy="170" r="40" fill="#0f2916"/>
-    <circle cx="240" cy="156" r="14" fill="rgba(255,255,255,0.32)"/>
-
-    <!-- シャッターランプ(安全色) -->
-    <circle cx="380" cy="106" r="14" fill="#fbbf24"/>
-
-    <!-- KE タイポ -->
-    <text x="256" y="406" text-anchor="middle"
-          font-family="-apple-system, 'Hiragino Sans', 'Yu Gothic UI', sans-serif"
-          font-size="36" font-weight="800" fill="#ffffff" letter-spacing="2">KE-Camera</text>
+  <!-- LED 電球シンボル(中央上) -->
+  <g transform="translate(256, 156)">
+    <!-- 光線 -->
+    <g stroke="#fbbf24" stroke-width="6" stroke-linecap="round" opacity="0.85">
+      <line x1="0" y1="-90" x2="0" y2="-70"/>
+      <line x1="-78" y1="-45" x2="-62" y2="-32"/>
+      <line x1="78" y1="-45" x2="62" y2="-32"/>
+      <line x1="-90" y1="0" x2="-70" y2="0"/>
+      <line x1="90" y1="0" x2="70" y2="0"/>
+    </g>
+    <!-- 電球本体 -->
+    <circle cx="0" cy="0" r="56" fill="url(#bulb)" stroke="#ffffff" stroke-width="6"/>
+    <!-- フィラメント -->
+    <path d="M -18 8 Q 0 -24 18 8" fill="none" stroke="#d39a17" stroke-width="3" stroke-linecap="round"/>
+    <!-- 口金 -->
+    <rect x="-22" y="48" width="44" height="18" rx="4" fill="#0f2916" stroke="#ffffff" stroke-width="3"/>
+    <line x1="-18" y1="58" x2="18" y2="58" stroke="rgba(255,255,255,0.45)" stroke-width="2"/>
   </g>
 </svg>

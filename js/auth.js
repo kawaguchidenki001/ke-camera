@@ -1,18 +1,14 @@
 // js/auth.js
-// Google Identity Services の token client を使った OAuth 2.0 認証
+// Google Identity Services の token client(drive.file スコープ)
 
-import { OAUTH_SCOPES } from "./config.js";
+import { OAUTH_CLIENT_ID, OAUTH_SCOPES } from "./config.js";
 
 let tokenClient = null;
 let accessToken = null;
-let tokenExpiresAt = 0;       // ミリ秒(epoch)
-let userEmail = null;          // ID トークンを取らない設計なので、ユーザー識別は別途
+let tokenExpiresAt = 0;
 let pendingResolve = null;
 let pendingReject = null;
 
-/**
- * GIS のスクリプトロード完了を待つ
- */
 function waitForGsi(timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -20,7 +16,7 @@ function waitForGsi(timeoutMs = 8000) {
       if (window.google && window.google.accounts && window.google.accounts.oauth2) {
         resolve();
       } else if (Date.now() - start > timeoutMs) {
-        reject(new Error("Google Identity Services の読み込みに失敗しました"));
+        reject(new Error("Google 認証サービスの読み込みに失敗しました。通信状態をご確認ください。"));
       } else {
         setTimeout(poll, 80);
       }
@@ -28,26 +24,21 @@ function waitForGsi(timeoutMs = 8000) {
   });
 }
 
-/**
- * token client の初期化(クライアント ID 設定後に毎回呼び直す)
- */
-export async function initAuth(clientId) {
-  if (!clientId) throw new Error("OAuth クライアント ID が未設定です");
+export async function initAuth() {
   await waitForGsi();
 
   tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
+    client_id: OAUTH_CLIENT_ID,
     scope: OAUTH_SCOPES,
-    prompt: "",                  // 初回のみ consent。再認可は静かに。
+    prompt: "",
     callback: (response) => {
       if (response && response.access_token) {
         accessToken = response.access_token;
-        // expires_in は秒
         const lifeSec = parseInt(response.expires_in || "3600", 10);
-        tokenExpiresAt = Date.now() + (lifeSec - 30) * 1000; // 30 秒余裕を見る
+        tokenExpiresAt = Date.now() + (lifeSec - 30) * 1000;
         if (pendingResolve) pendingResolve(accessToken);
       } else {
-        if (pendingReject) pendingReject(new Error("認可が拒否されました"));
+        if (pendingReject) pendingReject(new Error("認証が拒否されました"));
       }
       pendingResolve = pendingReject = null;
     },
@@ -58,12 +49,12 @@ export async function initAuth(clientId) {
     },
   });
 
-  // ストレージから過去のトークンを試しに復元(セッション間で 1 時間程度生きる)
+  // セッション中のトークン復元(同一タブ内)
   try {
-    const raw = sessionStorage.getItem("ke-camera:token");
+    const raw = sessionStorage.getItem("kc:token");
     if (raw) {
       const obj = JSON.parse(raw);
-      if (obj && obj.token && obj.expiresAt > Date.now() + 60000) {
+      if (obj?.token && obj.expiresAt > Date.now() + 60000) {
         accessToken = obj.token;
         tokenExpiresAt = obj.expiresAt;
       }
@@ -73,34 +64,21 @@ export async function initAuth(clientId) {
   return true;
 }
 
-/**
- * 現在のトークンを返す(期限切れなら null)
- */
 export function getCachedToken() {
   if (accessToken && tokenExpiresAt > Date.now()) return accessToken;
   return null;
 }
 
-/**
- * 有効なトークンを返す。なければ取得する。
- * - 明示的ユーザー操作(クリック等)の中で呼ぶこと(ポップアップブロッカー対策)
- */
 export function requestAccessToken({ forcePrompt = false } = {}) {
-  if (!tokenClient) {
-    return Promise.reject(new Error("認証クライアント未初期化"));
-  }
-  // キャッシュトークンが有効ならそれを返す
+  if (!tokenClient) return Promise.reject(new Error("認証クライアント未初期化"));
   if (!forcePrompt) {
     const cached = getCachedToken();
     if (cached) return Promise.resolve(cached);
   }
   return new Promise((resolve, reject) => {
     pendingResolve = (tok) => {
-      // セッションに保存
       try {
-        sessionStorage.setItem("ke-camera:token", JSON.stringify({
-          token: tok, expiresAt: tokenExpiresAt,
-        }));
+        sessionStorage.setItem("kc:token", JSON.stringify({ token: tok, expiresAt: tokenExpiresAt }));
       } catch (e) { /* ignore */ }
       resolve(tok);
     };
@@ -114,19 +92,15 @@ export function requestAccessToken({ forcePrompt = false } = {}) {
   });
 }
 
-/**
- * サインアウト(トークン破棄 + revoke)
- */
 export async function signOut() {
   const t = accessToken;
   accessToken = null;
   tokenExpiresAt = 0;
-  try { sessionStorage.removeItem("ke-camera:token"); } catch (e) {}
+  try { sessionStorage.removeItem("kc:token"); } catch (e) {}
   if (t && window.google?.accounts?.oauth2?.revoke) {
     return new Promise((resolve) => {
-      try {
-        google.accounts.oauth2.revoke(t, () => resolve());
-      } catch (e) { resolve(); }
+      try { google.accounts.oauth2.revoke(t, () => resolve()); }
+      catch (e) { resolve(); }
     });
   }
 }

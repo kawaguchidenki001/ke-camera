@@ -1,20 +1,18 @@
 // js/composer.js
-// 写真の上に工事黒板を焼き込む
+// 黒板を写真に焼き込む(北方住宅専用レイアウト)
+
+import { PROJECT } from "./config.js";
 
 /**
- * 写真と黒板を合成して Blob を返す
- * @param {ImageBitmap|HTMLCanvasElement|HTMLVideoElement|HTMLImageElement} source - 元写真
- * @param {object} board - { koujiMei, koushu, shikousha, naiyou, date, seq }
- * @param {object} opts  - { pos:'bottom'|'top', heightRatio:number, showSeq:boolean, jpegQuality:number }
- * @returns {Promise<{blob:Blob, dataUrl:string, width:number, height:number}>}
+ * @param {ImageBitmap|HTMLCanvasElement|HTMLVideoElement} source
+ * @param {object} board - { building, room, type, photographer, date, seq }
+ * @param {object} opts  - { pos, heightRatio, jpegQuality }
  */
 export async function composePhoto(source, board, opts = {}) {
-  const pos        = opts.pos || "bottom";
-  const heightR    = clamp(opts.heightRatio ?? 0.28, 0.16, 0.45);
-  const showSeq    = opts.showSeq !== false;
-  const quality    = clamp(opts.jpegQuality ?? 0.92, 0.5, 1.0);
+  const pos      = opts.pos || "bottom";
+  const heightR  = clamp(opts.heightRatio ?? 0.30, 0.16, 0.45);
+  const quality  = clamp(opts.jpegQuality ?? 0.92, 0.5, 1.0);
 
-  // ソースのサイズ取得
   const sw = source.width  || source.videoWidth  || source.naturalWidth;
   const sh = source.height || source.videoHeight || source.naturalHeight;
   if (!sw || !sh) throw new Error("元画像のサイズが取得できません");
@@ -24,64 +22,48 @@ export async function composePhoto(source, board, opts = {}) {
   cnv.height = sh;
   const ctx = cnv.getContext("2d");
 
-  // 1) 元写真を描画
   ctx.drawImage(source, 0, 0, sw, sh);
 
-  // 2) 黒板を描画
   const boardH = Math.round(sh * heightR);
   const boardY = (pos === "top") ? 0 : (sh - boardH);
-  drawBoard(ctx, 0, boardY, sw, boardH, board, { showSeq });
+  drawBoard(ctx, 0, boardY, sw, boardH, board);
 
-  // 3) Blob 化(JPEG)
   const blob = await new Promise((resolve, reject) => {
     cnv.toBlob((b) => b ? resolve(b) : reject(new Error("画像の生成に失敗")), "image/jpeg", quality);
   });
 
-  // プレビュー用に dataURL も(小さい場合のみ)
   const dataUrl = await blobToDataUrl(blob);
-
   return { blob, dataUrl, width: sw, height: sh };
 }
 
-/**
- * 黒板そのものを描画
- */
-function drawBoard(ctx, x, y, w, h, board, { showSeq }) {
-  // ----- 黒板背景(深緑、紙のような微妙なムラ感は省略しシンプルに) -----
+function drawBoard(ctx, x, y, w, h, board) {
   ctx.save();
+
+  // 黒板背景
   ctx.fillStyle = "#1e4d2b";
   ctx.fillRect(x, y, w, h);
 
-  // 外側に細い影
-  ctx.shadowColor = "rgba(0,0,0,0.35)";
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = -2;
-
-  // 上端ハイライト(写真と黒板の境目をはっきりさせる)
+  // 上端ハイライト
   ctx.fillStyle = "rgba(255,255,255,0.18)";
   ctx.fillRect(x, y, w, 2);
-  ctx.shadowColor = "transparent";
 
-  // ----- フレーム(白) -----
+  // フレーム
   const fInset = Math.max(6, Math.round(w * 0.008));
   const fThick = Math.max(2, Math.round(w * 0.0025));
   ctx.strokeStyle = "rgba(255,255,255,0.92)";
   ctx.lineWidth = fThick;
   ctx.strokeRect(x + fInset, y + fInset, w - fInset * 2, h - fInset * 2);
 
-  // ----- 内側レイアウト計算 -----
-  const padX = Math.round(w * 0.025);
-  const padY = Math.round(h * 0.08);
+  // 内側レイアウト
+  const padX = Math.round(w * 0.022);
+  const padY = Math.round(h * 0.06);
   const innerX = x + fInset + padX;
   const innerY = y + fInset + padY;
   const innerW = w - (fInset + padX) * 2;
   const innerH = h - (fInset + padY) * 2;
 
-  // 行数 4(工事名 / 工種+施工者 / 撮影内容 / 年月日+No.)
+  // 4 行レイアウト(工事情報/場所と会社/撮影内容/フッター)
   const rowH = innerH / 4;
-  const labelW = Math.round(innerW * 0.18);  // ラベル列の幅
-  const rightColX = innerX + Math.round(innerW * 0.58); // 「工種 / 施工者」の右列開始
-  const rightLabelW = Math.round(innerW * 0.13);
 
   // 行分割線
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
@@ -90,80 +72,95 @@ function drawBoard(ctx, x, y, w, h, board, { showSeq }) {
     const ly = innerY + rowH * i;
     line(ctx, innerX, ly, innerX + innerW, ly);
   }
-  // 列分割線(2 行目: 工種 / 施工者の間)
-  line(ctx, rightColX, innerY + rowH, rightColX, innerY + rowH * 2);
-  // 列分割線(4 行目: 年月日 / No.の間)
-  if (showSeq) {
-    line(ctx, rightColX, innerY + rowH * 3, rightColX, innerY + rowH * 4);
-  }
 
-  // ----- フォント設定(白色チョーク風) -----
-  const labelFontPx = Math.max(11, Math.round(rowH * 0.30));
-  const valueFontPx = Math.max(14, Math.round(rowH * 0.46));
-  const labelFont = `600 ${labelFontPx}px ${jpFontStack()}`;
-  const valueFont = `bold ${valueFontPx}px ${jpFontStack()}`;
-  const valueColor = "#ffffff";
-  const labelColor = "rgba(255,255,255,0.78)";
-
-  // 行 1: 工事名
-  drawCell(ctx, {
+  // ===== 行 1: 工事名 + 工事番号 =====
+  const labelFontPx1 = Math.max(10, Math.round(rowH * 0.26));
+  const valueFontPx1 = Math.max(13, Math.round(rowH * 0.36));
+  drawSingle(ctx, {
     x: innerX, y: innerY, w: innerW, h: rowH,
-    labelW, label: "工事名", value: board.koujiMei || "",
-    labelFont, valueFont, labelColor, valueColor,
-    fitValue: true,
+    labelW: Math.round(innerW * 0.13),
+    label: "工事名",
+    value: `${PROJECT.name}(${PROJECT.number})`,
+    labelFont: `600 ${labelFontPx1}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx1}px ${jpFont()}`,
   });
 
-  // 行 2: 工種 / 施工者
-  drawCell(ctx, {
-    x: innerX, y: innerY + rowH, w: rightColX - innerX, h: rowH,
-    labelW, label: "工種", value: board.koushu || "",
-    labelFont, valueFont, labelColor, valueColor,
-    fitValue: true,
+  // ===== 行 2: 場所 / 会社(2 列) =====
+  const labelFontPx2 = Math.max(11, Math.round(rowH * 0.30));
+  const valueFontPx2 = Math.max(14, Math.round(rowH * 0.42));
+  const col2RightX = innerX + Math.round(innerW * 0.58);
+  // 列分割線
+  line(ctx, col2RightX, innerY + rowH, col2RightX, innerY + rowH * 2);
+
+  drawSingle(ctx, {
+    x: innerX, y: innerY + rowH, w: col2RightX - innerX, h: rowH,
+    labelW: Math.round(innerW * 0.13),
+    label: "場所",
+    value: `${board.building || ""}-${board.room || ""}`,
+    labelFont: `600 ${labelFontPx2}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx2}px ${jpFont()}`,
   });
-  drawCell(ctx, {
-    x: rightColX, y: innerY + rowH, w: innerW - (rightColX - innerX), h: rowH,
-    labelW: rightLabelW, label: "施工者", value: board.shikousha || "",
-    labelFont, valueFont, labelColor, valueColor,
-    fitValue: true,
+  drawSingle(ctx, {
+    x: col2RightX, y: innerY + rowH, w: innerW - (col2RightX - innerX), h: rowH,
+    labelW: Math.round(innerW * 0.10),
+    label: "会社",
+    value: PROJECT.company,
+    labelFont: `600 ${labelFontPx2}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx2}px ${jpFont()}`,
   });
 
-  // 行 3: 撮影内容
-  drawCell(ctx, {
+  // ===== 行 3: 撮影内容(大きく) =====
+  const labelFontPx3 = Math.max(11, Math.round(rowH * 0.30));
+  const valueFontPx3 = Math.max(16, Math.round(rowH * 0.52));
+  drawSingle(ctx, {
     x: innerX, y: innerY + rowH * 2, w: innerW, h: rowH,
-    labelW, label: "撮影内容", value: board.naiyou || "",
-    labelFont, valueFont, labelColor, valueColor,
-    fitValue: true,
+    labelW: Math.round(innerW * 0.13),
+    label: "撮影内容",
+    value: board.type || "",
+    labelFont: `600 ${labelFontPx3}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx3}px ${jpFont()}`,
   });
 
-  // 行 4: 撮影年月日 / No.
-  if (showSeq) {
-    drawCell(ctx, {
-      x: innerX, y: innerY + rowH * 3, w: rightColX - innerX, h: rowH,
-      labelW, label: "撮影年月日", value: formatDateJp(board.date),
-      labelFont, valueFont, labelColor, valueColor,
-      fitValue: false,
-    });
-    drawCell(ctx, {
-      x: rightColX, y: innerY + rowH * 3, w: innerW - (rightColX - innerX), h: rowH,
-      labelW: rightLabelW, label: "No.", value: board.seq ? "#" + pad3(board.seq) : "",
-      labelFont, valueFont, labelColor, valueColor,
-      fitValue: false,
-    });
-  } else {
-    drawCell(ctx, {
-      x: innerX, y: innerY + rowH * 3, w: innerW, h: rowH,
-      labelW, label: "撮影年月日", value: formatDateJp(board.date),
-      labelFont, valueFont, labelColor, valueColor,
-      fitValue: false,
-    });
-  }
+  // ===== 行 4: 撮影者 / 日付 / No.(3 列) =====
+  const labelFontPx4 = Math.max(11, Math.round(rowH * 0.30));
+  const valueFontPx4 = Math.max(14, Math.round(rowH * 0.42));
+  const col4X1 = innerX + Math.round(innerW * 0.42);
+  const col4X2 = innerX + Math.round(innerW * 0.78);
+
+  line(ctx, col4X1, innerY + rowH * 3, col4X1, innerY + rowH * 4);
+  line(ctx, col4X2, innerY + rowH * 3, col4X2, innerY + rowH * 4);
+
+  drawSingle(ctx, {
+    x: innerX, y: innerY + rowH * 3, w: col4X1 - innerX, h: rowH,
+    labelW: Math.round(innerW * 0.13),
+    label: "撮影者",
+    value: board.photographer || "",
+    labelFont: `600 ${labelFontPx4}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx4}px ${jpFont()}`,
+  });
+  drawSingle(ctx, {
+    x: col4X1, y: innerY + rowH * 3, w: col4X2 - col4X1, h: rowH,
+    labelW: Math.round(innerW * 0.10),
+    label: "撮影日",
+    value: formatDateJp(board.date),
+    labelFont: `600 ${labelFontPx4}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx4}px ${jpFont()}`,
+  });
+  drawSingle(ctx, {
+    x: col4X2, y: innerY + rowH * 3, w: innerW - (col4X2 - innerX), h: rowH,
+    labelW: Math.round(innerW * 0.06),
+    label: "No.",
+    value: board.seq ? "#" + pad3(board.seq) : "",
+    labelFont: `600 ${labelFontPx4}px ${jpFont()}`,
+    valueFont: `bold ${valueFontPx4}px ${jpFont()}`,
+  });
 
   ctx.restore();
 }
 
-function drawCell(ctx, c) {
+function drawSingle(ctx, c) {
   // ラベル
-  ctx.fillStyle = c.labelColor;
+  ctx.fillStyle = "rgba(255,255,255,0.78)";
   ctx.font = c.labelFont;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
@@ -172,20 +169,15 @@ function drawCell(ctx, c) {
   ctx.fillText(c.label, labelX, labelY);
 
   // 値
-  ctx.fillStyle = c.valueColor;
+  ctx.fillStyle = "#ffffff";
   ctx.font = c.valueFont;
-  const valueX = c.x + c.labelW + Math.round(c.w * 0.02);
+  const valueX = c.x + c.labelW + Math.round(c.w * 0.020);
   const valueY = c.y + c.h * 0.5;
   const maxW = c.x + c.w - valueX - Math.round(c.w * 0.015);
-
-  let value = c.value || "";
-  if (c.fitValue) {
-    value = fitTextToWidth(ctx, value, maxW, c.valueFont);
-  }
+  const value = fitTextToWidth(ctx, c.value || "", maxW, c.valueFont);
   ctx.fillText(value, valueX, valueY);
 }
 
-/** テキストを横幅に収める(超える場合は末尾省略 …) */
 function fitTextToWidth(ctx, text, maxW, font) {
   ctx.font = font;
   if (ctx.measureText(text).width <= maxW) return text;
@@ -206,14 +198,12 @@ function line(ctx, x1, y1, x2, y2) {
   ctx.stroke();
 }
 
-function jpFontStack() {
-  // Canvas は HTML の font-family と同じ書式
+function jpFont() {
   return `"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans JP",sans-serif`;
 }
 
 function formatDateJp(d) {
   if (!d) return "";
-  // d は "YYYY-MM-DD" のはず
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
   if (!m) return d;
   return `${m[1]}/${m[2]}/${m[3]}`;
@@ -229,26 +219,4 @@ function blobToDataUrl(blob) {
     r.onerror = () => reject(r.error || new Error("読み込み失敗"));
     r.readAsDataURL(blob);
   });
-}
-
-/**
- * デバッグ・確認用: 黒板だけを単独 Canvas で描く(設定画面のプレビュー等で使える)
- */
-export function renderBoardPreview(canvas, board, opts = {}) {
-  const w = canvas.width;
-  const h = canvas.height;
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, w, h);
-  // 写真っぽい灰色背景
-  const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, "#888");
-  gradient.addColorStop(1, "#555");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, w, h);
-
-  const heightR = clamp(opts.heightRatio ?? 0.28, 0.16, 0.45);
-  const pos = opts.pos || "bottom";
-  const boardH = Math.round(h * heightR);
-  const boardY = pos === "top" ? 0 : (h - boardH);
-  drawBoard(ctx, 0, boardY, w, boardH, board, { showSeq: opts.showSeq !== false });
 }
