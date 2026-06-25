@@ -1,7 +1,7 @@
 // sw.js
-// 北方カメラ - シンプル PWA キャッシュ
+// 北方カメラ - PWA キャッシュ
 
-const VERSION = "v1.4.0";
+const VERSION = "v1.5.0";
 const APP_CACHE = `kitagata-cam-${VERSION}`;
 
 const PRECACHE = [
@@ -14,9 +14,8 @@ const PRECACHE = [
   "./js/storage.js",
   "./js/photoStore.js",
   "./js/ui.js",
-  "./js/auth.js",
-  "./js/drive.js",
   "./js/sheets.js",
+  "./js/gas-uploader.js",
   "./js/camera.js",
   "./js/composer.js",
   "./icons/icon.svg",
@@ -46,10 +45,11 @@ self.addEventListener("fetch", (event) => {
 
   if (req.method !== "GET") return;
 
-  // Google API はキャッシュしない
+  // Google API / GAS はキャッシュしない
   if (url.hostname.endsWith("googleapis.com") ||
       url.hostname.endsWith("google.com") ||
-      url.hostname === "accounts.google.com") {
+      url.hostname === "accounts.google.com" ||
+      url.hostname.includes("script.google")) {
     return;
   }
 

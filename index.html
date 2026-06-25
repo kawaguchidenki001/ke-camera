@@ -16,8 +16,6 @@
   <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   <link rel="stylesheet" href="./style.css" />
-
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -28,7 +26,7 @@
     </svg>
   </button>
   <h1 class="app-title">北方カメラ</h1>
-  <button class="header-btn" id="authStatusBtn" aria-label="認証状態" type="button">
+  <button class="header-btn" id="authStatusBtn" aria-label="接続状態" type="button">
     <span id="authIndicator" class="auth-indicator off" aria-hidden="true"></span>
   </button>
 </header>
@@ -55,16 +53,13 @@
       <p class="splash-company"><span id="projCompany">河口電機株式会社</span></p>
 
       <div class="splash-actions">
-        <button class="btn btn-primary btn-xl" id="btnLoginSplash" type="button">
-          Google でログイン
-        </button>
-        <button class="btn btn-ghost" id="btnSkipLogin" type="button">
-          ログインせずに使う(後で送信)
+        <button class="btn btn-primary btn-xl" id="btnStart" type="button">
+          使い始める
         </button>
       </div>
       <p class="splash-mode-hint">
-        ログインすれば撮影と同時に Drive 保存。<br>
-        ログインしない場合は端末に保存し、後でまとめて送信できます。
+        撮影した写真は会社の Drive に自動保存されます。<br>
+        ログイン操作は不要です。
       </p>
 
       <p class="splash-version">小黒板カメラ <span id="appVersion">v1.0.0</span></p>
@@ -260,7 +255,7 @@
     <ul class="menu-list">
       <li><button id="menuChangePhoto" type="button">撮影者を変更</button></li>
       <li><button id="menuReloadConfig" type="button">設定を再読み込み(Sheets)</button></li>
-      <li><button id="menuSignOut" type="button">サインアウト</button></li>
+      <li><button id="menuTestGas" type="button">GAS 接続テスト</button></li>
     </ul>
     <div class="menu-foot">
       <p class="menu-version">小黒板カメラ <span id="appVersionMenu"></span></p>

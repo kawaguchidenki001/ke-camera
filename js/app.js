@@ -1,8 +1,9 @@
 // js/app.js
-// 北方カメラ v1.4.0 - 5行黒板・照明器具/施工段階の選択
+// 北方カメラ v1.5.0 - GAS Web App 経由(ログイン不要)
 
 import {
   APP_VERSION,
+  GAS_WEB_APP_URL,
   SHEETS_ID,
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
@@ -11,7 +12,6 @@ import {
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
-  getCachedFolderId, setCachedFolderId,
   getLastBuilding, setLastBuilding, getLastRoom, setLastRoom,
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
@@ -24,11 +24,10 @@ import {
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
 } from "./ui.js";
-import { initAuth, requestAccessToken, signOut, isSignedIn, getCachedToken } from "./auth.js";
-import { uploadBlob, createSubfolder } from "./drive.js";
-import { startCamera, switchCamera, stopCamera, grabFrame } from "./camera.js";
+import { startCamera, switchCamera, stopCamera } from "./camera.js";
 import { composePhoto, BOARD_HR, BROWH } from "./composer.js";
 import { readAllConfig } from "./sheets.js";
+import { uploadViaGas, pingGas } from "./gas-uploader.js";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, deletePhoto,
@@ -40,7 +39,6 @@ const { $, $$ } = dom;
 /* ============================================================ State */
 
 const state = {
-  // Sheets 設定
   project:       { ...FALLBACK_PROJECT },
   buildings:     { ...FALLBACK_BUILDINGS },
   fixtures:      [...FALLBACK_FIXTURES],
@@ -48,23 +46,21 @@ const state = {
   configSource:  "fallback",
   configCachedAt: null,
 
-  // ユーザー選択(撮影者はメニューから設定するが、必ずファイル名・メタに付ける)
   photographer:  getPhotographer(),
   building:      getLastBuilding(),
   room:          getLastRoom(),
   fixture:       getLastFixture(),
   stage:         getLastStage(),
 
-  // カメラ・黒板
   cameraOn:      false,
   cameraTrack:   null,
   boardRect:     loadBoardRect(),
   boardScale:    loadBoardScale(),
   noBoard:       loadNoBoardFlag(),
 
-  // 撮影
   uploading:     false,
   cancelBatch:   false,
+  gasReady:      false,
 };
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -79,22 +75,44 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   initBoardUI();
 
-  try {
-    await initAuth();
-    updateAuthIndicator();
-  } catch (e) {
-    console.warn("Auth init failed:", e);
-  }
+  // GAS 疎通確認(非同期、結果はインジケータに反映)
+  testGasConnection();
 
-  if (isSignedIn()) showScreen("home");
-  else              showScreen("splash");
+  // スプラッシュ画面(初回 or 撮影者未設定時)
+  showScreen("splash");
 });
+
+/* ============================================================ GAS 疎通 */
+
+async function testGasConnection() {
+  if (!GAS_WEB_APP_URL) {
+    setAuthIndicator(false);
+    console.warn("GAS_WEB_APP_URL が未設定です");
+    return;
+  }
+  try {
+    const r = await pingGas();
+    if (r && r.ok) {
+      state.gasReady = true;
+      setAuthIndicator(true);
+      console.log("GAS 接続 OK:", r);
+    } else {
+      state.gasReady = false;
+      setAuthIndicator(false);
+      console.warn("GAS 応答エラー:", r);
+    }
+  } catch (e) {
+    state.gasReady = false;
+    setAuthIndicator(false);
+    console.warn("GAS 接続失敗:", e);
+  }
+}
 
 /* ============================================================ 設定読み込み */
 
 async function loadAppConfig({ forceFresh = false } = {}) {
   if (!SHEETS_ID) {
-    console.warn("SHEETS_ID 未設定、フォールバックを使用");
+    console.warn("SHEETS_ID 未設定");
     return;
   }
   try {
@@ -124,11 +142,9 @@ async function loadAppConfig({ forceFresh = false } = {}) {
       state.configSource = "cache";
       state.configCachedAt = cached.cachedAt;
       if (forceFresh) toastError(`Sheets 失敗(キャッシュを使用): ${e.message}`);
-      else            toastInfo("オフライン: 前回の設定を使用");
     } else {
       state.configSource = "fallback";
       if (forceFresh) toastError(`Sheets 失敗: ${e.message}`);
-      else            toastInfo("初期値を使用");
     }
   } finally {
     if (forceFresh) hideLoading();
@@ -196,8 +212,7 @@ async function refreshOutboxCard() {
 /* ============================================================ Events */
 
 function initEvents() {
-  $("#btnLoginSplash").addEventListener("click", onLogin);
-  $("#btnSkipLogin").addEventListener("click", onSkipLogin);
+  $("#btnStart").addEventListener("click", onStart);
 
   $("#cardBuilding").addEventListener("click", pickBuilding);
   $("#cardRoom").addEventListener("click", pickRoom);
@@ -208,29 +223,26 @@ function initEvents() {
 
   $("#btnMenu").addEventListener("click", openMenu);
   $$("[data-close-menu]").forEach(el => el.addEventListener("click", closeMenu));
-  $("#menuSignOut").addEventListener("click", onSignOut);
   $("#menuChangePhoto").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
   const reloadBtn = $("#menuReloadConfig");
   if (reloadBtn) reloadBtn.addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
+  const testBtn = $("#menuTestGas");
+  if (testBtn) testBtn.addEventListener("click", async () => { closeMenu(); await onTestGas(); });
 
   $("#authStatusBtn").addEventListener("click", onAuthDotClick);
 
-  // カメラ画面
   $("#btnCameraBack").addEventListener("click", leaveCamera);
   $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
   $("#btnShoot").addEventListener("click", () => onShoot(false));
   $("#btnShootHQ").addEventListener("click", () => onShoot(true));
 
-  // 黒板UIイベント
   $("#boardSizeRange").addEventListener("input", onBoardSizeChange);
   $("#boardNoBoard").addEventListener("change", onNoBoardChange);
 
-  // 黒板入力欄(5行)
   ["boardProjName", "boardPlace", "boardFixture", "boardStage", "boardCompany"].forEach(id => {
     $("#" + id).addEventListener("input", renderBoard);
   });
 
-  // -/+ ボタン
   $$(".bfs[data-step]").forEach(btn => {
     btn.addEventListener("click", () => {
       const k = btn.dataset.step;
@@ -239,12 +251,10 @@ function initEvents() {
     });
   });
 
-  // Outbox
   $("#btnOutboxBack").addEventListener("click", () => { showScreen("home"); refreshOutboxCard(); refreshHomeCards(); });
   $("#btnUploadAll").addEventListener("click", uploadAllPending);
   $("#btnRefreshOutbox").addEventListener("click", () => renderOutbox());
 
-  // 黒板ドラッグ
   initBoardDrag();
 
   window.addEventListener("pagehide", () => { stopCamera(); revokeAllObjectUrls(); });
@@ -254,46 +264,42 @@ function initEvents() {
   window.addEventListener("resize", () => { layoutBoard(); });
 }
 
-/* ============================================================ Login */
+/* ============================================================ スタート */
 
-async function onLogin() {
-  try {
-    showLoading("Google にログイン中…");
-    await initAuth();
-    await requestAccessToken();
-    updateAuthIndicator();
-    toastSuccess("ログインしました");
-    showScreen("home");
-    refreshHomeCards();
-    refreshOutboxCard();
-    // 撮影者未設定なら一度聞く
-    if (!state.photographer) setTimeout(pickPhotographer, 200);
-  } catch (e) { toastError(e.message); }
-  finally { hideLoading(); }
-}
-
-function onSkipLogin() {
-  toastInfo("ログインせずに使用します。撮影写真は端末に保存され、後で送信できます。");
+async function onStart() {
   showScreen("home");
   refreshHomeCards();
   refreshOutboxCard();
   if (!state.photographer) setTimeout(pickPhotographer, 200);
 }
 
-async function onSignOut() {
-  closeMenu();
-  await signOut();
-  updateAuthIndicator();
-  toastInfo("サインアウトしました");
-  showScreen("splash");
-}
-
 async function onAuthDotClick() {
-  if (isSignedIn()) toastInfo("ログイン中(緑)");
-  else onLogin();
+  if (state.gasReady) toastInfo("GAS 接続 OK(緑)");
+  else {
+    toastInfo("GAS 接続を確認中…");
+    await testGasConnection();
+  }
 }
 
-function updateAuthIndicator() { setAuthIndicator(isSignedIn()); }
+async function onTestGas() {
+  toastInfo("GAS に接続中…");
+  try {
+    const r = await pingGas();
+    if (r && r.ok) {
+      state.gasReady = true;
+      setAuthIndicator(true);
+      toastSuccess(`接続OK: ${r.folder || "Drive"}`);
+    } else {
+      state.gasReady = false;
+      setAuthIndicator(false);
+      toastError(`接続失敗: ${r?.error || "応答エラー"}`);
+    }
+  } catch (e) {
+    state.gasReady = false;
+    setAuthIndicator(false);
+    toastError("接続失敗: " + e.message);
+  }
+}
 
 /* ============================================================ Pickers */
 
@@ -331,7 +337,7 @@ async function managePhotographers() {
 
 async function pickBuilding() {
   const buildings = Object.keys(state.buildings);
-  if (buildings.length === 0) { toastError("棟が設定されていません(Sheetsを確認)"); return; }
+  if (buildings.length === 0) { toastError("棟が未設定(Sheetsを確認)"); return; }
   const v = await pickFromList({
     title: "棟を選ぶ",
     options: buildings.map(b => ({ value: b, label: b })),
@@ -386,10 +392,7 @@ async function manageCustomRooms(building) {
 }
 
 async function pickFixture() {
-  if (!state.fixtures || state.fixtures.length === 0) {
-    toastError("照明器具が未設定(Sheetsを確認)");
-    return;
-  }
+  if (!state.fixtures || state.fixtures.length === 0) { toastError("照明器具が未設定"); return; }
   const v = await pickFromList({
     title: "照明器具を選ぶ",
     options: state.fixtures.map(f => ({ value: f, label: f })),
@@ -404,10 +407,7 @@ async function pickFixture() {
 }
 
 async function pickStage() {
-  if (!state.stages || state.stages.length === 0) {
-    toastError("施工段階が未設定(Sheetsを確認)");
-    return;
-  }
+  if (!state.stages || state.stages.length === 0) { toastError("施工段階が未設定"); return; }
   const v = await pickFromList({
     title: "施工段階を選ぶ",
     options: state.stages.map(s => ({ value: s, label: s })),
@@ -433,19 +433,17 @@ async function goCamera() {
     toastError("棟・部屋・照明器具・施工段階を全て選んでください");
     return;
   }
-  // 撮影者未設定なら先に設定してもらう
   if (!state.photographer) {
     toastInfo("最初に撮影者を設定してください");
     await pickPhotographer();
     if (!state.photographer) return;
   }
   if (await isAtLimit(PENDING_LIMIT)) {
-    toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。先に送信してください。`);
+    toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。`);
     openOutbox();
     return;
   }
 
-  // 黒板に現在の選択をセット(5行)
   $("#boardProjName").value = state.project.name || "";
   $("#boardPlace").value    = `${state.building}-${state.room}`;
   $("#boardFixture").value  = state.fixture || "";
@@ -453,8 +451,6 @@ async function goCamera() {
   $("#boardCompany").value  = state.project.company || "";
 
   $("#boardNoBoard").checked = state.noBoard;
-
-  // 現場バー
   $("#camSitebarText").textContent = `${state.project.name || ""} ／ ${state.building}-${state.room}`;
 
   showScreen("camera");
@@ -533,7 +529,6 @@ function onLineScaleChange(k, d) {
   layoutBoard();
 }
 
-// 黒板の HTML(5行)
 function renderBoard() {
   const ov = $("#boardOverlay");
   if (!ov) return;
@@ -661,7 +656,7 @@ async function onShoot(hq) {
         } catch (e1) {
           try { source = await ic.grabFrame(); }
           catch (e2) {
-            console.warn("ImageCapture 失敗、通常撮影で続行");
+            console.warn("ImageCapture 失敗、通常撮影");
             source = video;
           }
         }
@@ -680,13 +675,15 @@ async function onShoot(hq) {
       e: v("boardCompany"),
     };
 
+    // GAS 経由送信のため、長辺を制限して通信量を抑える
     const result = await composePhoto(source, {
       boardRect:  { ...state.boardRect },
       lineScale:  { ...state.boardScale },
       labels, values,
-      jpegQuality: JPEG_QUALITY,
+      jpegQuality: hq ? JPEG_QUALITY : 0.85,
       cropToRatio: true,
       alsoNoBoard: state.noBoard,
+      maxLongSide: hq ? 2400 : 1600,
     });
 
     shutterSound();
@@ -707,15 +704,13 @@ async function onShoot(hq) {
     const fileNameMain = buildFilename(FILENAME_TEMPLATE, board);
     const fileNameNB   = fileNameMain.replace(/\.jpe?g$/i, "_nb.jpg");
 
-    // 写真1: 黒板あり
+    // IndexedDB に保存(オフライン耐性)
     const photoIdMain = await addPhoto({
       blob: result.withBoard.blob,
       board,
       fileName: fileNameMain,
       roomKey,
     });
-
-    // 写真2: 黒板なし(オプション)
     let photoIdNB = null;
     if (state.noBoard && result.noBoard) {
       photoIdNB = await addPhoto({
@@ -726,17 +721,13 @@ async function onShoot(hq) {
       });
     }
 
-    // ログイン中なら即送信
-    if (isSignedIn()) {
-      try {
-        await uploadOne(photoIdMain);
-        if (photoIdNB) await uploadOne(photoIdNB);
-        toastSuccess(`保存完了: ${fileNameMain}${photoIdNB ? " (2枚)" : ""}`);
-      } catch (e) {
-        toastError(`Drive 送信失敗(未送信として保持): ${e.message}`);
-      }
-    } else {
-      toastSuccess(`端末に保存(後で送信): ${fileNameMain}${photoIdNB ? " (2枚)" : ""}`);
+    // GAS に送信
+    try {
+      await uploadOne(photoIdMain);
+      if (photoIdNB) await uploadOne(photoIdNB);
+      toastSuccess(`Drive に保存${photoIdNB ? " (2枚)" : ""}: ${fileNameMain}`);
+    } catch (e) {
+      toastError(`送信失敗(未送信として保持): ${e.message}`);
     }
   } catch (e) {
     console.error(e);
@@ -783,78 +774,43 @@ function blobToImage(blob) {
   });
 }
 
-/* ============================================================ Upload */
+/* ============================================================ アップロード(GAS 経由) */
 
 async function uploadOne(photoId) {
   const photo = await getPhoto(photoId);
   if (!photo) throw new Error("写真が見つかりません");
   if (!photo.blob) throw new Error("写真データが既に削除されています");
 
-  let token = getCachedToken();
-  if (!token) {
-    token = await requestAccessToken();
-    updateAuthIndicator();
-  }
   await markUploading(photoId);
 
-  const parentFolderId = (photo.board.project && photo.board.project.driveFolderId)
-                       || state.project.driveFolderId
-                       || FALLBACK_PROJECT.driveFolderId;
-  if (!parentFolderId) throw new Error("親フォルダ ID が未設定");
-
-  const folderName = photo.roomKey;
-  const cacheKey = `${parentFolderId}::${folderName}`;
-  let folderId = getCachedFolderId(cacheKey);
-  if (!folderId) {
-    folderId = await createSubfolder({
-      name: folderName,
-      parentId: parentFolderId,
-      accessToken: token,
-    });
-    setCachedFolderId(cacheKey, folderId);
-  }
-
+  const folderName = photo.roomKey;  // 例: "A1-101"
   const proj = photo.board.project || state.project;
-  const description = [
-    `工事名: ${proj.name}`,
-    `工事番号: ${proj.number}`,
-    `工事場所: ${proj.location}`,
-    `会社: ${proj.company}`,
-    `撮影場所: ${photo.board.building}-${photo.board.room}`,
-    `照明器具: ${photo.board.fixture}`,
-    `施工段階: ${photo.board.stage}`,
-    `撮影者: ${photo.board.photographer}`,
-    `撮影年月日: ${photo.board.date}`,
-    `No: #${pad3(photo.board.seq)}`,
-    photo.board.isNoBoard ? "種別: 黒板なし" : "種別: 黒板あり",
-    `app: 北方カメラ v${APP_VERSION}`,
-  ].join("\n");
 
-  const properties = {
-    project: proj.number || "",
-    bldg:    photo.board.building,
-    room:    photo.board.room,
-    fixture: photo.board.fixture,
-    stage:   photo.board.stage,
-    photog:  photo.board.photographer,
-    date:    photo.board.date,
-    seq:     String(photo.board.seq),
-    nb:      photo.board.isNoBoard ? "1" : "0",
-    app:     "kitagata-cam",
-    localId: photoId,
+  const meta = {
+    工事名: proj.name || "",
+    工事番号: proj.number || "",
+    工事場所: proj.location || "",
+    会社名: proj.company || "",
+    撮影場所: `${photo.board.building}-${photo.board.room}`,
+    照明器具: photo.board.fixture || "",
+    施工段階: photo.board.stage || "",
+    撮影者:   photo.board.photographer || "",
+    撮影年月日: photo.board.date,
+    連番: pad3(photo.board.seq),
+    種別: photo.board.isNoBoard ? "黒板なし" : "黒板あり",
+    app: `北方カメラ v${APP_VERSION}`,
   };
 
   try {
-    const result = await uploadBlob({
-      blob:        photo.blob,
-      name:        photo.fileName,
-      mimeType:    "image/jpeg",
-      parents:     [folderId],
-      accessToken: token,
-      description,
-      properties,
+    const result = await uploadViaGas({
+      blob: photo.blob,
+      fileName: photo.fileName,
+      folderName,
+      mimeType: "image/jpeg",
+      meta,
     });
-    await markUploaded(photoId, result.id || "");
+    // no-cors なので fileId は取れないが、送信成功とみなす
+    await markUploaded(photoId, result.fileId || "");
     return result;
   } catch (e) {
     await markFailed(photoId, e.message || String(e));
@@ -884,9 +840,7 @@ async function renderOutbox() {
   }
   empty.hidden = true;
   allBtn.disabled = false;
-  allBtn.textContent = isSignedIn()
-    ? `すべて Drive に送信(${list.length} 枚)`
-    : "ログインしてから送信(タップでログイン)";
+  allBtn.textContent = `すべて Drive に送信(${list.length} 枚)`;
 
   listEl.innerHTML = "";
   for (const p of list) {
@@ -928,14 +882,6 @@ async function renderOutbox() {
 }
 
 async function uploadAllPending() {
-  if (!isSignedIn()) {
-    try {
-      await initAuth();
-      await requestAccessToken();
-      updateAuthIndicator();
-      toastSuccess("ログインしました。送信を開始します。");
-    } catch (e) { toastError("ログインが必要です: " + e.message); return; }
-  }
   const list = await getPendingPhotos();
   if (list.length === 0) { toastInfo("未送信なし"); return; }
 
@@ -954,13 +900,7 @@ async function uploadAllPending() {
     fill.style.width = `${Math.round((i / total) * 100)}%`;
     text.textContent = `送信中 ${i + 1} / ${total}: ${p.board.building}-${p.board.room} #${pad3(p.board.seq)}`;
     try { await uploadOne(p.id); ok++; }
-    catch (e) {
-      ng++;
-      if (/401/.test(e.message)) {
-        try { await requestAccessToken({ forcePrompt: true }); updateAuthIndicator(); }
-        catch (e2) { toastError("再認証失敗: " + e2.message); break; }
-      }
-    }
+    catch (e) { ng++; }
   }
   fill.style.width = "100%";
   text.textContent = `完了: 成功 ${ok} 件 / 失敗 ${ng} 件`;

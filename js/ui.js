@@ -56,6 +56,7 @@ export function hideLoading() {
 /* ============================================================ Auth indicator */
 
 export function setAuthIndicator(on) {
+  // GAS 接続状態用に流用(true=緑、false=赤)
   const el = document.getElementById("authIndicator");
   if (!el) return;
   el.classList.toggle("on",  !!on);

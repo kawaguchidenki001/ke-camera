@@ -13,13 +13,11 @@ export const BROWH = { a: 0.15, b: 0.15, c: 0.27, d: 0.27, e: 0.16 };
  *
  * @param {ImageBitmap|HTMLVideoElement|HTMLImageElement|HTMLCanvasElement} source
  * @param {object} options
- *   - boardRect:   {x, y, w}  全部 0..1 の比率
- *   - lineScale:   {a,b,c,d,e}  各行のフォント倍率(0.5..1.6)
- *   - labels:      {a,b}  ラベル付き行(1,2行目)のラベル文字
- *   - values:      {a,b,c,d,e}  各行の値
+ *   - boardRect, lineScale, labels, values: 黒板
  *   - jpegQuality: 0..1
  *   - cropToRatio: true なら 4:3 にセンタークロップ
  *   - alsoNoBoard: true なら黒板なし版も生成
+ *   - maxLongSide: 長辺の最大ピクセル数(指定すると縮小、未指定=元サイズのまま)
  *
  * @returns {Promise<{withBoard:{blob,dataUrl}, noBoard?, width, height}>}
  */
@@ -32,6 +30,7 @@ export async function composePhoto(source, options) {
   const jpegQuality = clamp(opts.jpegQuality ?? 0.92, 0.5, 1.0);
   const cropToRatio = opts.cropToRatio !== false;
   const alsoNoBoard = !!opts.alsoNoBoard;
+  const maxLongSide = opts.maxLongSide || 0;
 
   const sw = source.width  || source.videoWidth  || source.naturalWidth;
   const sh = source.height || source.videoHeight || source.naturalHeight;
@@ -48,9 +47,20 @@ export async function composePhoto(source, options) {
     cw = sw; ch = sh; cx = 0; cy = 0;
   }
 
+  // 長辺リサイズ
+  let outW = cw, outH = ch;
+  if (maxLongSide > 0) {
+    const long = Math.max(cw, ch);
+    if (long > maxLongSide) {
+      const r = maxLongSide / long;
+      outW = Math.round(cw * r);
+      outH = Math.round(ch * r);
+    }
+  }
+
   const base = document.createElement("canvas");
-  base.width = cw; base.height = ch;
-  base.getContext("2d").drawImage(source, cx, cy, cw, ch, 0, 0, cw, ch);
+  base.width = outW; base.height = outH;
+  base.getContext("2d").drawImage(source, cx, cy, cw, ch, 0, 0, outW, outH);
 
   let noBoard = null;
   if (alsoNoBoard) {
@@ -68,8 +78,8 @@ export async function composePhoto(source, options) {
   return {
     withBoard: { blob: wbBlob, dataUrl: wbDataUrl },
     noBoard,
-    width: cw,
-    height: ch,
+    width: outW,
+    height: outH,
   };
 }
 
