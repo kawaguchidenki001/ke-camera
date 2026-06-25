@@ -80,12 +80,6 @@
 
     <div class="card-group">
 
-      <button class="big-card" id="cardPhotographer" type="button">
-        <span class="bc-label">撮影者</span>
-        <span class="bc-value" id="cardPhotographerVal">未設定</span>
-        <span class="bc-chevron" aria-hidden="true">›</span>
-      </button>
-
       <button class="big-card" id="cardBuilding" type="button">
         <span class="bc-label">棟</span>
         <span class="bc-value" id="cardBuildingVal">未選択</span>
@@ -98,9 +92,15 @@
         <span class="bc-chevron" aria-hidden="true">›</span>
       </button>
 
-      <button class="big-card" id="cardType" type="button">
-        <span class="bc-label">撮影内容</span>
-        <span class="bc-value" id="cardTypeVal">未選択</span>
+      <button class="big-card" id="cardFixture" type="button">
+        <span class="bc-label">照明器具</span>
+        <span class="bc-value" id="cardFixtureVal">未選択</span>
+        <span class="bc-chevron" aria-hidden="true">›</span>
+      </button>
+
+      <button class="big-card" id="cardStage" type="button">
+        <span class="bc-label">施工段階</span>
+        <span class="bc-value" id="cardStageVal">未選択</span>
         <span class="bc-chevron" aria-hidden="true">›</span>
       </button>
 
@@ -179,28 +179,22 @@
         <button class="bfs" data-step="b" data-d="0.1"  type="button">＋</button>
       </div>
       <div class="brow">
-        <span class="blbl3">撮影内容</span>
-        <input class="binp" id="boardType" placeholder="撮影内容" />
+        <span class="blbl3">照明器具</span>
+        <input class="binp" id="boardFixture" placeholder="照明器具(例: a059)" />
         <button class="bfs" data-step="c" data-d="-0.1" type="button">−</button>
         <button class="bfs" data-step="c" data-d="0.1"  type="button">＋</button>
       </div>
       <div class="brow">
-        <span class="blbl3">撮影者</span>
-        <input class="binp" id="boardPhotog" placeholder="撮影者" />
+        <span class="blbl3">施工段階</span>
+        <input class="binp" id="boardStage" placeholder="施工段階(例: 施工前)" />
         <button class="bfs" data-step="d" data-d="-0.1" type="button">−</button>
         <button class="bfs" data-step="d" data-d="0.1"  type="button">＋</button>
       </div>
       <div class="brow">
-        <span class="blbl3">自由</span>
-        <input class="binp" id="boardFree" placeholder="自由記入(例:工事番号、棟番号など)" />
-        <button class="bfs" data-step="e" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="e" data-d="0.1"  type="button">＋</button>
-      </div>
-      <div class="brow">
         <span class="blbl3">会社名</span>
         <input class="binp" id="boardCompany" placeholder="会社名" />
-        <button class="bfs" data-step="f" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="f" data-d="0.1"  type="button">＋</button>
+        <button class="bfs" data-step="e" data-d="-0.1" type="button">−</button>
+        <button class="bfs" data-step="e" data-d="0.1"  type="button">＋</button>
       </div>
     </div>
 

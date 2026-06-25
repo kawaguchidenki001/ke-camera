@@ -1,10 +1,10 @@
 // js/app.js
-// 北方カメラ - GenCan風 小黒板カメラ統合版
+// 北方カメラ v1.4.0 - 5行黒板・照明器具/施工段階の選択
 
 import {
   APP_VERSION,
   SHEETS_ID,
-  FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_TYPES,
+  FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
 } from "./config.js";
@@ -12,7 +12,8 @@ import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
   getCachedFolderId, setCachedFolderId,
-  getLastBuilding, setLastBuilding, getLastRoom, setLastRoom, getLastType, setLastType,
+  getLastBuilding, setLastBuilding, getLastRoom, setLastRoom,
+  getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
   loadBoardRect, saveBoardRect, loadBoardScale, saveBoardScale,
@@ -42,15 +43,17 @@ const state = {
   // Sheets 設定
   project:       { ...FALLBACK_PROJECT },
   buildings:     { ...FALLBACK_BUILDINGS },
-  types:         [...FALLBACK_TYPES],
+  fixtures:      [...FALLBACK_FIXTURES],
+  stages:        [...FALLBACK_STAGES],
   configSource:  "fallback",
   configCachedAt: null,
 
-  // ユーザー選択
+  // ユーザー選択(撮影者はメニューから設定するが、必ずファイル名・メタに付ける)
   photographer:  getPhotographer(),
   building:      getLastBuilding(),
   room:          getLastRoom(),
-  type:          getLastType(),
+  fixture:       getLastFixture(),
+  stage:         getLastStage(),
 
   // カメラ・黒板
   cameraOn:      false,
@@ -74,7 +77,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   refreshHomeCards();
   await refreshOutboxCard();
 
-  // 黒板UI初期化
   initBoardUI();
 
   try {
@@ -100,10 +102,16 @@ async function loadAppConfig({ forceFresh = false } = {}) {
     const cfg = await readAllConfig();
     if (cfg.project && cfg.project.name) state.project = { ...FALLBACK_PROJECT, ...cfg.project };
     if (cfg.buildings && Object.keys(cfg.buildings).length > 0) state.buildings = cfg.buildings;
-    if (Array.isArray(cfg.types) && cfg.types.length > 0) state.types = cfg.types;
+    if (Array.isArray(cfg.fixtures) && cfg.fixtures.length > 0) state.fixtures = cfg.fixtures;
+    if (Array.isArray(cfg.stages)   && cfg.stages.length > 0)   state.stages   = cfg.stages;
     state.configSource = "sheets";
     state.configCachedAt = Date.now();
-    saveConfigCache({ project: state.project, buildings: state.buildings, types: state.types });
+    saveConfigCache({
+      project: state.project,
+      buildings: state.buildings,
+      fixtures: state.fixtures,
+      stages: state.stages,
+    });
     if (forceFresh) toastSuccess("Sheets から設定を読み込みました");
   } catch (e) {
     console.warn("Sheets 読み込み失敗:", e);
@@ -111,7 +119,8 @@ async function loadAppConfig({ forceFresh = false } = {}) {
     if (cached && cached.cfg) {
       state.project   = { ...FALLBACK_PROJECT, ...cached.cfg.project };
       state.buildings = cached.cfg.buildings || FALLBACK_BUILDINGS;
-      state.types     = cached.cfg.types     || FALLBACK_TYPES;
+      state.fixtures  = cached.cfg.fixtures  || FALLBACK_FIXTURES;
+      state.stages    = cached.cfg.stages    || FALLBACK_STAGES;
       state.configSource = "cache";
       state.configCachedAt = cached.cachedAt;
       if (forceFresh) toastError(`Sheets 失敗(キャッシュを使用): ${e.message}`);
@@ -151,14 +160,14 @@ function populateProjectInfo() {
 }
 
 function refreshHomeCards() {
-  $("#cardPhotographerVal").textContent = state.photographer || "未設定";
-  $("#cardPhotographerVal").classList.toggle("placeholder", !state.photographer);
   $("#cardBuildingVal").textContent = state.building || "未選択";
   $("#cardBuildingVal").classList.toggle("placeholder", !state.building);
   $("#cardRoomVal").textContent = state.room || "未選択";
   $("#cardRoomVal").classList.toggle("placeholder", !state.room);
-  $("#cardTypeVal").textContent = state.type || "未選択";
-  $("#cardTypeVal").classList.toggle("placeholder", !state.type);
+  $("#cardFixtureVal").textContent = state.fixture || "未選択";
+  $("#cardFixtureVal").classList.toggle("placeholder", !state.fixture);
+  $("#cardStageVal").textContent = state.stage || "未選択";
+  $("#cardStageVal").classList.toggle("placeholder", !state.stage);
 
   const roomKey = makeRoomKey(state.building, state.room);
   if (roomKey) {
@@ -168,7 +177,7 @@ function refreshHomeCards() {
     $("#nextSeqHint").textContent = "棟と部屋を選択してください";
   }
 
-  const ready = !!(state.photographer && state.building && state.room && state.type);
+  const ready = !!(state.building && state.room && state.fixture && state.stage);
   $("#btnGoCamera").disabled = !ready;
 }
 
@@ -190,10 +199,10 @@ function initEvents() {
   $("#btnLoginSplash").addEventListener("click", onLogin);
   $("#btnSkipLogin").addEventListener("click", onSkipLogin);
 
-  $("#cardPhotographer").addEventListener("click", pickPhotographer);
   $("#cardBuilding").addEventListener("click", pickBuilding);
   $("#cardRoom").addEventListener("click", pickRoom);
-  $("#cardType").addEventListener("click", pickType);
+  $("#cardFixture").addEventListener("click", pickFixture);
+  $("#cardStage").addEventListener("click", pickStage);
   $("#btnGoCamera").addEventListener("click", goCamera);
   $("#outboxCard").addEventListener("click", openOutbox);
 
@@ -216,8 +225,8 @@ function initEvents() {
   $("#boardSizeRange").addEventListener("input", onBoardSizeChange);
   $("#boardNoBoard").addEventListener("change", onNoBoardChange);
 
-  // 黒板入力欄(入力で再描画)
-  ["boardProjName", "boardPlace", "boardType", "boardPhotog", "boardFree", "boardCompany"].forEach(id => {
+  // 黒板入力欄(5行)
+  ["boardProjName", "boardPlace", "boardFixture", "boardStage", "boardCompany"].forEach(id => {
     $("#" + id).addEventListener("input", renderBoard);
   });
 
@@ -235,7 +244,7 @@ function initEvents() {
   $("#btnUploadAll").addEventListener("click", uploadAllPending);
   $("#btnRefreshOutbox").addEventListener("click", () => renderOutbox());
 
-  // 黒板のドラッグ移動
+  // 黒板ドラッグ
   initBoardDrag();
 
   window.addEventListener("pagehide", () => { stopCamera(); revokeAllObjectUrls(); });
@@ -254,12 +263,11 @@ async function onLogin() {
     await requestAccessToken();
     updateAuthIndicator();
     toastSuccess("ログインしました");
-    if (!state.photographer) {
-      showScreen("home"); refreshHomeCards(); refreshOutboxCard();
-      setTimeout(pickPhotographer, 200);
-    } else {
-      showScreen("home"); refreshHomeCards(); refreshOutboxCard();
-    }
+    showScreen("home");
+    refreshHomeCards();
+    refreshOutboxCard();
+    // 撮影者未設定なら一度聞く
+    if (!state.photographer) setTimeout(pickPhotographer, 200);
   } catch (e) { toastError(e.message); }
   finally { hideLoading(); }
 }
@@ -304,7 +312,7 @@ async function pickPhotographer() {
   if (v) {
     state.photographer = v;
     setPhotographer(v);
-    refreshHomeCards();
+    toastInfo(`撮影者を「${v}」に設定`);
   }
 }
 
@@ -318,7 +326,6 @@ async function managePhotographers() {
   if (v) {
     removeKnownPhotographer(v);
     if (state.photographer === v) { state.photographer = ""; setPhotographer(""); }
-    refreshHomeCards();
   }
 }
 
@@ -378,17 +385,38 @@ async function manageCustomRooms(building) {
   }
 }
 
-async function pickType() {
-  if (!state.types || state.types.length === 0) { toastError("撮影内容が未設定(Sheetsを確認)"); return; }
+async function pickFixture() {
+  if (!state.fixtures || state.fixtures.length === 0) {
+    toastError("照明器具が未設定(Sheetsを確認)");
+    return;
+  }
   const v = await pickFromList({
-    title: "撮影内容を選ぶ",
-    options: state.types.map(t => ({ value: t, label: t })),
-    allowInput: true, inputPlaceholder: "自由入力する撮影内容…",
-    selectedValue: state.type,
+    title: "照明器具を選ぶ",
+    options: state.fixtures.map(f => ({ value: f, label: f })),
+    allowInput: true, inputPlaceholder: "自由入力する照明器具…",
+    selectedValue: state.fixture,
   });
   if (v) {
-    state.type = v;
-    setLastType(v);
+    state.fixture = v;
+    setLastFixture(v);
+    refreshHomeCards();
+  }
+}
+
+async function pickStage() {
+  if (!state.stages || state.stages.length === 0) {
+    toastError("施工段階が未設定(Sheetsを確認)");
+    return;
+  }
+  const v = await pickFromList({
+    title: "施工段階を選ぶ",
+    options: state.stages.map(s => ({ value: s, label: s })),
+    allowInput: true, inputPlaceholder: "自由入力する施工段階…",
+    selectedValue: state.stage,
+  });
+  if (v) {
+    state.stage = v;
+    setLastStage(v);
     refreshHomeCards();
   }
 }
@@ -401,9 +429,15 @@ function closeMenu() { $("#menu").classList.remove("open"); }
 /* ============================================================ Camera */
 
 async function goCamera() {
-  if (!(state.photographer && state.building && state.room && state.type)) {
-    toastError("撮影者・棟・部屋・撮影内容を全て選んでください");
+  if (!(state.building && state.room && state.fixture && state.stage)) {
+    toastError("棟・部屋・照明器具・施工段階を全て選んでください");
     return;
+  }
+  // 撮影者未設定なら先に設定してもらう
+  if (!state.photographer) {
+    toastInfo("最初に撮影者を設定してください");
+    await pickPhotographer();
+    if (!state.photographer) return;
   }
   if (await isAtLimit(PENDING_LIMIT)) {
     toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。先に送信してください。`);
@@ -411,30 +445,22 @@ async function goCamera() {
     return;
   }
 
-  // 黒板に現在の選択をセット
+  // 黒板に現在の選択をセット(5行)
   $("#boardProjName").value = state.project.name || "";
   $("#boardPlace").value    = `${state.building}-${state.room}`;
-  $("#boardType").value     = state.type || "";
-  $("#boardPhotog").value   = state.photographer || "";
+  $("#boardFixture").value  = state.fixture || "";
+  $("#boardStage").value    = state.stage || "";
   $("#boardCompany").value  = state.project.company || "";
-  // 自由欄は前回値を保持しない(撮影ごとにリセット)
-  // 必要なら工事番号など
-  if (!$("#boardFree").value) {
-    $("#boardFree").value = state.project.number || "";
-  }
 
-  // 「黒板なしも保存」状態を復元
   $("#boardNoBoard").checked = state.noBoard;
 
   // 現場バー
-  $("#camSitebarText").textContent = `${state.project.number || ""} ／ ${state.building}-${state.room}`;
+  $("#camSitebarText").textContent = `${state.project.name || ""} ／ ${state.building}-${state.room}`;
 
   showScreen("camera");
-
   await startCameraFlow();
-  // 黒板オーバーレイを表示・配置
   renderBoard();
-  // サイズスライダー
+
   const sz = Math.round(state.boardRect.w * 100);
   $("#boardSizeRange").value = sz;
   $("#boardSizeVal").textContent = sz + "%";
@@ -480,7 +506,6 @@ async function onSwitchCamera() {
 /* ============================================================ 黒板 UI */
 
 function initBoardUI() {
-  // localStorage から復元(constructor で読んでいる)、サイズスライダー初期化
   const sz = Math.round(state.boardRect.w * 100);
   const range = $("#boardSizeRange");
   if (range) {
@@ -508,7 +533,7 @@ function onLineScaleChange(k, d) {
   layoutBoard();
 }
 
-// 黒板の HTML を生成(オーバーレイ表示)
+// 黒板の HTML(5行)
 function renderBoard() {
   const ov = $("#boardOverlay");
   if (!ov) return;
@@ -516,15 +541,13 @@ function renderBoard() {
   ov.innerHTML =
     `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l" data-k="la">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(v("boardProjName"))}</span></div></div>` +
     `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l" data-k="lb">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(v("boardPlace"))}</span></div></div>` +
-    `<div class="bov-row" style="height:${pct(BROWH.c)}"><div class="bov-lb"><span class="bv-l" data-k="lc">撮影内容</span></div><div class="bov-vl"><span class="bv-t" data-k="c">${esc(v("boardType"))}</span></div></div>` +
-    `<div class="bov-row" style="height:${pct(BROWH.d)}"><div class="bov-lb"><span class="bv-l" data-k="ld">撮影者</span></div><div class="bov-vl"><span class="bv-t" data-k="d">${esc(v("boardPhotog"))}</span></div></div>` +
-    `<div class="bov-fr"  style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(v("boardFree"))}</span></div>` +
-    `<div class="bov-co"  style="height:${pct(BROWH.f)}"><span class="bv-t" data-k="f">${esc(v("boardCompany"))}</span></div>`;
+    `<div class="bov-fr"  style="height:${pct(BROWH.c)}"><span class="bv-t" data-k="c">${esc(v("boardFixture"))}</span></div>` +
+    `<div class="bov-fr"  style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(v("boardStage"))}</span></div>` +
+    `<div class="bov-co"  style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(v("boardCompany"))}</span></div>`;
   ov.style.display = "block";
   layoutBoard();
 }
 
-// 黒板の位置・サイズ・文字スケールを実DOMに反映
 function layoutBoard() {
   const wrap = $("#bcamWrap");
   const ov   = $("#boardOverlay");
@@ -532,7 +555,6 @@ function layoutBoard() {
   const W = wrap.clientWidth, H = wrap.clientHeight;
   if (!W || !H) return;
 
-  // 黒板の幅と高さ
   let bw = W * state.boardRect.w;
   let bh = bw * BOARD_HR;
   if (bh > H * 0.9) {
@@ -540,7 +562,6 @@ function layoutBoard() {
     bw = bh / BOARD_HR;
     state.boardRect.w = bw / W;
   }
-  // 位置のクランプ
   let x = clamp(state.boardRect.x, 0, 1 - bw / W);
   let y = clamp(state.boardRect.y, 0, 1 - bh / H);
   state.boardRect.x = x;
@@ -551,17 +572,13 @@ function layoutBoard() {
   ov.style.width  = bw + "px";
   ov.style.height = bh + "px";
 
-  // 各文字のフォントサイズ調整
   setRowFont(ov, ".bv-l[data-k='la']", "la", BROWH.a, 0.4);
   setRowFont(ov, ".bv-l[data-k='lb']", "lb", BROWH.b, 0.4);
-  setRowFont(ov, ".bv-l[data-k='lc']", "lc", BROWH.c, 0.4);
-  setRowFont(ov, ".bv-l[data-k='ld']", "ld", BROWH.d, 0.4);
   setRowFont(ov, ".bv-t[data-k='a']",  "a",  BROWH.a, 0.6, bw);
   setRowFont(ov, ".bv-t[data-k='b']",  "b",  BROWH.b, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='c']",  "c",  BROWH.c, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='d']",  "d",  BROWH.d, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='e']",  "e",  BROWH.e, 0.66, bw);
-  setRowFont(ov, ".bv-t[data-k='f']",  "f",  BROWH.f, 0.45, bw);
+  setRowFont(ov, ".bv-t[data-k='c']",  "c",  BROWH.c, 0.55, bw);
+  setRowFont(ov, ".bv-t[data-k='d']",  "d",  BROWH.d, 0.55, bw);
+  setRowFont(ov, ".bv-t[data-k='e']",  "e",  BROWH.e, 0.45, bw);
 
   function setRowFont(rootEl, sel, k, frac, factor, parentW) {
     const el = rootEl.querySelector(sel);
@@ -570,7 +587,6 @@ function layoutBoard() {
     const fs = Math.max(6, rh * factor * (state.boardScale[k] || 1));
     el.style.fontSize = Math.floor(fs) + "px";
     el.style.transform = "";
-    // はみ出し時は X 方向にスケール
     if (parentW) {
       const avail = (el.parentNode ? el.parentNode.clientWidth : bw) - 2;
       if (avail > 0 && el.scrollWidth > avail) {
@@ -622,7 +638,6 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 async function onShoot(hq) {
   if (!state.cameraOn) { toastError("カメラが起動していません"); return; }
   if (state.uploading) { toastInfo("処理中です…"); return; }
-
   if (await isAtLimit(PENDING_LIMIT)) {
     toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。`);
     return;
@@ -635,7 +650,6 @@ async function onShoot(hq) {
   btn.textContent = "処理中…";
 
   try {
-    // 撮影元(高画質なら ImageCapture、通常なら video)
     const video = $("#videoEl");
     let source;
     if (hq && state.cameraTrack && typeof ImageCapture !== "undefined") {
@@ -645,34 +659,27 @@ async function onShoot(hq) {
           const blob = await ic.takePhoto();
           source = await blobToImage(blob);
         } catch (e1) {
-          try {
-            source = await ic.grabFrame();
-          } catch (e2) {
-            console.warn("ImageCapture 失敗、通常撮影で続行", e1, e2);
+          try { source = await ic.grabFrame(); }
+          catch (e2) {
+            console.warn("ImageCapture 失敗、通常撮影で続行");
             source = video;
           }
         }
-      } catch (e) {
-        console.warn("ImageCapture 不可、通常撮影", e);
-        source = video;
-      }
+      } catch (e) { source = video; }
     } else {
       source = video;
     }
 
-    // 黒板の値・ラベル
     const v = (id) => $("#" + id).value;
-    const labels = { a: "工事名", b: "場所", c: "撮影内容", d: "撮影者" };
+    const labels = { a: "工事名", b: "場所" };
     const values = {
       a: v("boardProjName"),
       b: v("boardPlace"),
-      c: v("boardType"),
-      d: v("boardPhotog"),
-      e: v("boardFree"),
-      f: v("boardCompany"),
+      c: v("boardFixture"),
+      d: v("boardStage"),
+      e: v("boardCompany"),
     };
 
-    // 焼き込み
     const result = await composePhoto(source, {
       boardRect:  { ...state.boardRect },
       lineScale:  { ...state.boardScale },
@@ -684,15 +691,14 @@ async function onShoot(hq) {
 
     shutterSound();
 
-    // 連番・ファイル名
     const board = {
       building:     state.building,
       room:         state.room,
-      type:         state.type,
+      fixture:      state.fixture,
+      stage:        state.stage,
       photographer: state.photographer,
       date:         todayYmd(),
       project:      state.project,
-      // 黒板に実際に焼き込まれた値も保持(後で再確認できるよう)
       boardValues:  values,
     };
     const roomKey = makeRoomKey(board.building, board.room);
@@ -702,12 +708,22 @@ async function onShoot(hq) {
     const fileNameNB   = fileNameMain.replace(/\.jpe?g$/i, "_nb.jpg");
 
     // 写真1: 黒板あり
-    const photoIdMain = await addPhotoStore(result.withBoard.blob, board, fileNameMain, roomKey);
+    const photoIdMain = await addPhoto({
+      blob: result.withBoard.blob,
+      board,
+      fileName: fileNameMain,
+      roomKey,
+    });
 
     // 写真2: 黒板なし(オプション)
     let photoIdNB = null;
     if (state.noBoard && result.noBoard) {
-      photoIdNB = await addPhotoStore(result.noBoard.blob, board, fileNameNB, roomKey);
+      photoIdNB = await addPhoto({
+        blob: result.noBoard.blob,
+        board: { ...board, isNoBoard: true },
+        fileName: fileNameNB,
+        roomKey,
+      });
     }
 
     // ログイン中なら即送信
@@ -715,16 +731,13 @@ async function onShoot(hq) {
       try {
         await uploadOne(photoIdMain);
         if (photoIdNB) await uploadOne(photoIdNB);
-        toastSuccess(`保存完了: ${fileNameMain}${photoIdNB ? "(2枚)" : ""}`);
+        toastSuccess(`保存完了: ${fileNameMain}${photoIdNB ? " (2枚)" : ""}`);
       } catch (e) {
         toastError(`Drive 送信失敗(未送信として保持): ${e.message}`);
       }
     } else {
-      toastSuccess(`端末に保存(後で送信): ${fileNameMain}${photoIdNB ? "(2枚)" : ""}`);
+      toastSuccess(`端末に保存(後で送信): ${fileNameMain}${photoIdNB ? " (2枚)" : ""}`);
     }
-
-    // 連続撮影のため、自由欄だけクリア(または保持。GenCanは保持)
-    // ここでは保持。次の撮影をすぐできる。
   } catch (e) {
     console.error(e);
     toastError("撮影失敗: " + e.message);
@@ -736,11 +749,6 @@ async function onShoot(hq) {
   }
 }
 
-async function addPhotoStore(blob, board, fileName, roomKey) {
-  return await addPhoto({ blob, board, fileName, roomKey });
-}
-
-// シャッター音
 function shutterSound() {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -749,8 +757,8 @@ function shutterSound() {
     const actx = window._shCtx;
     if (actx.state === "suspended") actx.resume();
     const t = actx.currentTime;
-    burst(actx, t,       0.022, 4200, 0.7, 1.0);
-    burst(actx, t + 0.05, 0.06, 1500, 0.6, 0.85);
+    burst(actx, t,        0.022, 4200, 0.7, 1.0);
+    burst(actx, t + 0.05, 0.06,  1500, 0.6, 0.85);
   } catch (e) {}
 }
 function burst(actx, at, dur, freq, q, vol) {
@@ -813,10 +821,12 @@ async function uploadOne(photoId) {
     `工事場所: ${proj.location}`,
     `会社: ${proj.company}`,
     `撮影場所: ${photo.board.building}-${photo.board.room}`,
-    `撮影内容: ${photo.board.type}`,
+    `照明器具: ${photo.board.fixture}`,
+    `施工段階: ${photo.board.stage}`,
     `撮影者: ${photo.board.photographer}`,
     `撮影年月日: ${photo.board.date}`,
     `No: #${pad3(photo.board.seq)}`,
+    photo.board.isNoBoard ? "種別: 黒板なし" : "種別: 黒板あり",
     `app: 北方カメラ v${APP_VERSION}`,
   ].join("\n");
 
@@ -824,10 +834,12 @@ async function uploadOne(photoId) {
     project: proj.number || "",
     bldg:    photo.board.building,
     room:    photo.board.room,
-    type:    photo.board.type,
+    fixture: photo.board.fixture,
+    stage:   photo.board.stage,
     photog:  photo.board.photographer,
     date:    photo.board.date,
     seq:     String(photo.board.seq),
+    nb:      photo.board.isNoBoard ? "1" : "0",
     app:     "kitagata-cam",
     localId: photoId,
   };
@@ -893,8 +905,8 @@ async function renderOutbox() {
       </div>
       <div class="oi-meta">
         <span class="oi-loc">${escapeHtml(p.board.building)}-${escapeHtml(p.board.room)}</span>
-        <span class="oi-type">${escapeHtml(p.board.type)}</span>
-        <span class="oi-date">${escapeHtml(p.board.date)} #${pad3(p.board.seq)}</span>
+        <span class="oi-type">${escapeHtml(p.board.fixture || "")} / ${escapeHtml(p.board.stage || "")}</span>
+        <span class="oi-date">${escapeHtml(p.board.date)} #${pad3(p.board.seq)}${p.board.isNoBoard ? " (黒板なし)" : ""}</span>
       </div>
     `;
     listEl.appendChild(item);
@@ -964,10 +976,7 @@ async function uploadAllPending() {
 
 function todayYmd() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${da}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function pad3(n) { return String(n).padStart(3, "0"); }
@@ -979,11 +988,12 @@ function makeRoomKey(building, room) {
 
 function buildFilename(tpl, board) {
   const dateCompact = (board.date || todayYmd()).replace(/-/g, "");
-  let name = (tpl || "{date}_{bldg}-{room}_{type}_{seq}.jpg")
+  let name = (tpl || "{date}_{bldg}-{room}_{fixture}_{stage}_{seq}.jpg")
     .replace(/\{date\}/g,         dateCompact)
     .replace(/\{bldg\}/g,         board.building || "")
     .replace(/\{room\}/g,         board.room || "")
-    .replace(/\{type\}/g,         board.type || "")
+    .replace(/\{fixture\}/g,      board.fixture || "")
+    .replace(/\{stage\}/g,        board.stage || "")
     .replace(/\{photographer\}/g, board.photographer || "")
     .replace(/\{seq\}/g,          pad3(board.seq || 1));
 

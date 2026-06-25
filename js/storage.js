@@ -2,14 +2,15 @@
 // localStorage 管理 — 撮影者・追加部屋・フォルダIDキャッシュ・連番・直近選択
 
 const KEYS = {
-  PHOTOGRAPHER:  "kc:photographer",   // 撮影者名
-  KNOWN_PHOTOGS: "kc:knownPhotogs",   // 撮影者の候補リスト(過去使った人)
-  CUSTOM_ROOMS:  "kc:customRooms",    // { "A1棟": ["111","112"], ... } 追加された部屋
-  FOLDER_CACHE:  "kc:folderCache",    // { "A1-101": "<folderId>", ... } サブフォルダID
+  PHOTOGRAPHER:  "kc:photographer",
+  KNOWN_PHOTOGS: "kc:knownPhotogs",
+  CUSTOM_ROOMS:  "kc:customRooms",
+  FOLDER_CACHE:  "kc:folderCache",
   LAST_BLDG:     "kc:lastBldg",
   LAST_ROOM:     "kc:lastRoom",
-  LAST_TYPE:     "kc:lastType",
-  SEQ_PREFIX:    "kc:seq:",           // 連番(日付+部屋ごと)
+  LAST_FIXTURE:  "kc:lastFixture",
+  LAST_STAGE:    "kc:lastStage",
+  SEQ_PREFIX:    "kc:seq:",
 };
 
 /* ============================================================ 撮影者 */
@@ -112,8 +113,11 @@ export function setLastBuilding(b) { localStorage.setItem(KEYS.LAST_BLDG, b); }
 export function getLastRoom()     { return localStorage.getItem(KEYS.LAST_ROOM) || ""; }
 export function setLastRoom(r)    { localStorage.setItem(KEYS.LAST_ROOM, r); }
 
-export function getLastType()     { return localStorage.getItem(KEYS.LAST_TYPE) || ""; }
-export function setLastType(t)    { localStorage.setItem(KEYS.LAST_TYPE, t); }
+export function getLastFixture()  { return localStorage.getItem(KEYS.LAST_FIXTURE) || ""; }
+export function setLastFixture(f) { localStorage.setItem(KEYS.LAST_FIXTURE, f); }
+
+export function getLastStage()    { return localStorage.getItem(KEYS.LAST_STAGE) || ""; }
+export function setLastStage(s)   { localStorage.setItem(KEYS.LAST_STAGE, s); }
 
 /* ============================================================ 連番(部屋+日付ごと) */
 
@@ -166,8 +170,8 @@ const BOARD_RECT_KEY  = "kc:boardRect";
 const BOARD_SCALE_KEY = "kc:boardScale";
 const BOARD_NOBD_KEY  = "kc:boardNoBoard";
 
-const DEFAULT_BOARD_RECT  = { x: 0, y: 0.7, w: 0.37 };
-const DEFAULT_BOARD_SCALE = { a: 1, b: 1, c: 1, d: 1, e: 1, f: 1 };
+const DEFAULT_BOARD_RECT  = { x: 0, y: 1, w: 0.37 };
+const DEFAULT_BOARD_SCALE = { a: 1, b: 1, c: 1, d: 1, e: 1 };
 
 export function loadBoardRect() {
   try {
@@ -192,7 +196,7 @@ export function loadBoardScale() {
     if (!raw) return { ...DEFAULT_BOARD_SCALE };
     const obj = JSON.parse(raw);
     const result = {};
-    for (const k of "abcdef") {
+    for (const k of "abcde") {
       result[k] = clampNum(obj[k], 0.5, 1.6, 1);
     }
     return result;

@@ -1,38 +1,36 @@
 // js/config.js
 // 北方カメラ - 設定値
 
-export const APP_VERSION = "1.3.0";
+export const APP_VERSION = "1.4.0";
 export const APP_NAME = "北方カメラ";
 
-// ===== Google OAuth(既存のKE-Cameraのものを流用) =====
+// ===== Google OAuth =====
 export const OAUTH_CLIENT_ID = "162115394945-581sp1s3u4je8c158ee336dadpc6mrss.apps.googleusercontent.com";
 export const OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file";
 
-// ===== Sheets 連携(現場の設定を Sheets から読む) =====
-// KE-Camera v0.1.0 で作ったAPIキーを流用(Sheets API 限定 + HTTPリファラ制限済み)
+// ===== Sheets 連携 =====
 export const SHEETS_API_KEY = "AIzaSyA1EPCXjMfkhso-kiu7SHRDmdts027GpQs";
+// ⚠️ Sheets を新規作成したら、ID をここに記入してください
+export const SHEETS_ID = "1uPhgQOJqhFF4KDsB-VUPdU-83P552rCT8zyCCxHfZD0";
 
-// 「北方カメラ 設定」シートのスプレッドシート ID
-// ⚠️ Kさんが Sheets を新規作成したら、その ID をここに記入してください。
-// 編集後は GitHub に push → Pages が更新されると新シートが反映されます。
-export const SHEETS_ID = "";  // ← ここに新シートの ID を入れる
-
-// シート名(タブ名)。固定。
-export const SHEET_TAB_PROJECT  = "工事情報";    // A列ラベル / B列値
-export const SHEET_TAB_BUILDING = "棟と部屋";    // A列=棟、B列以降=部屋番号
-export const SHEET_TAB_TYPES    = "撮影内容";    // A列=撮影内容
+// シート名(タブ名)
+export const SHEET_TAB_PROJECT  = "工事情報";
+export const SHEET_TAB_BUILDING = "棟と部屋";
+export const SHEET_TAB_FIXTURES = "照明器具";   // ← 新規
+export const SHEET_TAB_STAGES   = "施工段階";   // ← 新規
 
 // 各シートの読み取り範囲
 export const SHEET_RANGE_PROJECT  = `${SHEET_TAB_PROJECT}!A2:B`;
 export const SHEET_RANGE_BUILDING = `${SHEET_TAB_BUILDING}!A2:Z`;
-export const SHEET_RANGE_TYPES    = `${SHEET_TAB_TYPES}!A2:A`;
+export const SHEET_RANGE_FIXTURES = `${SHEET_TAB_FIXTURES}!A2:A`;
+export const SHEET_RANGE_STAGES   = `${SHEET_TAB_STAGES}!A2:A`;
 
-// Sheets/Drive API エンドポイント
+// API エンドポイント
 export const SHEETS_VALUES_ENDPOINT = "https://sheets.googleapis.com/v4/spreadsheets";
 export const DRIVE_UPLOAD_ENDPOINT  = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true";
 export const DRIVE_FILES_ENDPOINT   = "https://www.googleapis.com/drive/v3/files";
 
-// ===== Sheets が読めない場合のフォールバック(初回起動・オフライン時) =====
+// ===== フォールバック値(Sheets が読めない場合) =====
 export const FALLBACK_PROJECT = Object.freeze({
   name:    "県営北方住宅室内照明LED化改修工事",
   number:  "県住工第1号",
@@ -51,21 +49,28 @@ export const FALLBACK_BUILDINGS = Object.freeze({
   "S4棟": ["101","102","103","104","201","202","203","204","301","302","303","304","401","402","403","404","501","502","503","504"],
 });
 
-export const FALLBACK_TYPES = Object.freeze([
-  "灯具(設置前)",
-  "灯具(設置後)",
-  "銘板",
-  "結線状況",
-  "絶縁抵抗測定",
-  "接地抵抗測定",
-  "撤去状況",
-  "産廃処理",
-  "完了写真",
+// 北方住宅の照明器具記号(過去の図面分析より、22種類)
+export const FALLBACK_FIXTURES = Object.freeze([
+  "a059", "a060", "a061", "a062", "a063",
+  "x037", "x038", "x039",
+  "H098", "H099",
+  "LD10", "LD11", "LD12",
+  "I250", "I500",
+  "a'13", "a'14",
+  "T1", "T2",
   "その他",
 ]);
 
+// 施工段階(初期値)
+export const FALLBACK_STAGES = Object.freeze([
+  "施工前",
+  "施工中",
+  "施工後",
+]);
+
 // ===== ファイル名テンプレート =====
-export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{type}_{seq}.jpg";
+// トークン: {date} {bldg} {room} {fixture} {stage} {photographer} {seq}
+export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{fixture}_{stage}_{seq}.jpg";
 
 // ===== JPEG 品質 =====
 export const JPEG_QUALITY = 0.92;

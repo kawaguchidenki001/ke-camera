@@ -1,76 +1,57 @@
 // js/composer.js
-// GenCan風 黒板焼き込み
-// 写真の上に、指定された位置・サイズ・各行スケールで黒板を描画する。
+// GenCan風 黒板焼き込み(5行構成・撮影者なし)
+// 行構成: 工事名 / 場所 / 照明器具 / 施工段階 / 会社名(右寄せ)
 
-/**
- * 黒板の縦横比(width : height = 1 : BOARD_HR)
- * = 0.73 (GenCan と同じ)
- */
 export const BOARD_HR = 0.73;
 
-/**
- * 黒板の各行の高さ比(合計 1.0)
- *   a: 工事名     0.15
- *   b: 場所       0.15
- *   c: 撮影内容   0.18
- *   d: 撮影者     0.18
- *   e: 自由       0.18
- *   f: 会社名     0.16
- */
-export const BROWH = { a: 0.15, b: 0.15, c: 0.18, d: 0.18, e: 0.18, f: 0.16 };
+// 各行の高さ比(合計1.0)
+// 工事名15% / 場所15% / 照明器具27% / 施工段階27% / 会社16%
+export const BROWH = { a: 0.15, b: 0.15, c: 0.27, d: 0.27, e: 0.16 };
 
 /**
  * 写真+黒板を生成して JPEG Blob を返す
  *
  * @param {ImageBitmap|HTMLVideoElement|HTMLImageElement|HTMLCanvasElement} source
  * @param {object} options
- *   - boardRect:   {x, y, w}  全部 0..1 の比率(x,y=左上、w=幅比)
- *   - lineScale:   {a,b,c,d,e,f}  各行のフォント倍率(0.5..1.6)
- *   - labels:      {a,b,c,d}  行1〜4のラベル文字(右側に値)
- *   - values:      {a,b,c,d,e,f}  各行の値
+ *   - boardRect:   {x, y, w}  全部 0..1 の比率
+ *   - lineScale:   {a,b,c,d,e}  各行のフォント倍率(0.5..1.6)
+ *   - labels:      {a,b}  ラベル付き行(1,2行目)のラベル文字
+ *   - values:      {a,b,c,d,e}  各行の値
  *   - jpegQuality: 0..1
  *   - cropToRatio: true なら 4:3 にセンタークロップ
- *   - alsoNoBoard: true なら黒板なし版も生成して同時に返す
+ *   - alsoNoBoard: true なら黒板なし版も生成
  *
- * @returns {Promise<{withBoard:{blob,dataUrl}, noBoard?:{blob,dataUrl}, width, height}>}
+ * @returns {Promise<{withBoard:{blob,dataUrl}, noBoard?, width, height}>}
  */
 export async function composePhoto(source, options) {
   const opts = options || {};
-  const boardRect  = opts.boardRect  || { x: 0, y: 1, w: 0.37 };
-  const lineScale  = opts.lineScale  || { a:1, b:1, c:1, d:1, e:1, f:1 };
-  const labels     = opts.labels     || { a:"工事名", b:"場所", c:"撮影内容", d:"撮影者" };
-  const values     = opts.values     || {};
+  const boardRect   = opts.boardRect   || { x: 0, y: 1, w: 0.37 };
+  const lineScale   = opts.lineScale   || { a:1, b:1, c:1, d:1, e:1 };
+  const labels      = opts.labels      || { a:"工事名", b:"場所" };
+  const values      = opts.values      || {};
   const jpegQuality = clamp(opts.jpegQuality ?? 0.92, 0.5, 1.0);
-  const cropToRatio = opts.cropToRatio !== false; // デフォルト 4:3 クロップ
+  const cropToRatio = opts.cropToRatio !== false;
   const alsoNoBoard = !!opts.alsoNoBoard;
 
-  // 元画像のサイズ
   const sw = source.width  || source.videoWidth  || source.naturalWidth;
   const sh = source.height || source.videoHeight || source.naturalHeight;
   if (!sw || !sh) throw new Error("元画像のサイズが取得できません");
 
-  // 4:3 にセンタークロップ
+  // 4:3 センタークロップ
   let cw, ch, cx, cy;
   if (cropToRatio) {
-    if (sw / sh >= 4/3) {
-      ch = sh;
-      cw = Math.round(sh * 4 / 3);
-    } else {
-      cw = sw;
-      ch = Math.round(sw * 3 / 4);
-    }
+    if (sw / sh >= 4 / 3) { ch = sh; cw = Math.round(sh * 4 / 3); }
+    else                  { cw = sw; ch = Math.round(sw * 3 / 4); }
     cx = Math.round((sw - cw) / 2);
     cy = Math.round((sh - ch) / 2);
   } else {
     cw = sw; ch = sh; cx = 0; cy = 0;
   }
 
-  // ベースの写真キャンバス(黒板なし版でもある)
   const base = document.createElement("canvas");
   base.width = cw; base.height = ch;
   base.getContext("2d").drawImage(source, cx, cy, cw, ch, 0, 0, cw, ch);
 
-  // 黒板なし版を先に作る(必要なら)
   let noBoard = null;
   if (alsoNoBoard) {
     const blob = await canvasToBlob(base, "image/jpeg", jpegQuality);
@@ -78,7 +59,6 @@ export async function composePhoto(source, options) {
     noBoard = { blob, dataUrl };
   }
 
-  // 黒板を描画
   const withBoardCanvas = copyCanvas(base);
   drawBoard(withBoardCanvas, { boardRect, lineScale, labels, values });
 
@@ -99,7 +79,6 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
 
-  // 黒板のサイズ・位置を実ピクセルへ
   let bw = Math.floor(W * boardRect.w);
   let bh = Math.floor(bw * BOARD_HR);
   if (bh > H * 0.9) {
@@ -116,7 +95,7 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
   // 背景
   ctx.fillStyle = "#1a8c78";
   ctx.fillRect(bx, by, bw, bh);
-  // 外枠(白2px)
+  // 外枠
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = 2;
   ctx.strokeRect(bx + 2, by + 2, bw - 4, bh - 4);
@@ -127,23 +106,19 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
 
   let yy = by;
 
-  // ヘルパー: ラベル+値の行
+  // ラベル+値の行
   function rowLV(label, value, k, hf) {
     const rh = bh * hf;
-    // 行下境界線
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 1;
     line(ctx, bx + 4, yy + rh, bx + bw - 4, yy + rh);
-    // ラベル列の右境界
     line(ctx, bx + labelW, yy + 2, bx + labelW, yy + rh);
 
-    // ラベル(白、センター揃え)
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
     ctx.font = Math.max(7, Math.floor(rh * 0.4)) + "px " + jpFont();
     ctx.fillText(label, bx + labelW / 2, yy + rh / 2, labelW - 6);
 
-    // 値(白、左揃え、太字、個別スケール)
     const fs = Math.max(8, Math.floor(rh * 0.6 * (lineScale[k] || 1)));
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "left";
@@ -153,15 +128,14 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
     yy += rh;
   }
 
-  // ヘルパー: 自由(中央揃え)の行
+  // 中央揃え行(ラベルなし、大文字)
   function rowFree(value, k, hf) {
     const rh = bh * hf;
-    // 行下境界線
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 1;
     line(ctx, bx + 4, yy + rh, bx + bw - 4, yy + rh);
 
-    const fs = Math.max(8, Math.floor(rh * 0.66 * (lineScale[k] || 1)));
+    const fs = Math.max(8, Math.floor(rh * 0.55 * (lineScale[k] || 1)));
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "center";
@@ -171,7 +145,7 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
     yy += rh;
   }
 
-  // ヘルパー: 会社名(右寄せ)
+  // 会社名(右寄せ・小)
   function rowCo(value, k, hf) {
     const rh = bh * hf;
     const fs = Math.max(7, Math.floor(rh * 0.45 * (lineScale[k] || 1)));
@@ -184,13 +158,12 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
     yy += rh;
   }
 
-  // 6 行を順に描画
-  rowLV(labels.a || "工事名",   values.a || "", "a", BROWH.a);
-  rowLV(labels.b || "場所",     values.b || "", "b", BROWH.b);
-  rowLV(labels.c || "撮影内容", values.c || "", "c", BROWH.c);
-  rowLV(labels.d || "撮影者",   values.d || "", "d", BROWH.d);
-  rowFree(values.e || "", "e", BROWH.e);
-  rowCo(values.f || "", "f", BROWH.f);
+  // 5 行描画
+  rowLV(labels.a || "工事名", values.a || "", "a", BROWH.a);
+  rowLV(labels.b || "場所",   values.b || "", "b", BROWH.b);
+  rowFree(values.c || "", "c", BROWH.c);  // 照明器具
+  rowFree(values.d || "", "d", BROWH.d);  // 施工段階
+  rowCo(values.e || "", "e", BROWH.e);    // 会社名
 }
 
 /* ============================================================ utilities */
@@ -203,7 +176,6 @@ function line(ctx, x1, y1, x2, y2) {
 }
 
 function jpFont() {
-  // ブラウザ環境で利用可能な日本語フォントスタックを返す
   return `"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans JP",sans-serif`;
 }
 
