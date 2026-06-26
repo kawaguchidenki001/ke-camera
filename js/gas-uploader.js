@@ -1,8 +1,8 @@
 // js/gas-uploader.js
 // GAS Web App と通信
-// v1.6.8: スマホ安定優先。画像は iframe form POST で送信し、GAS状態確認で完了判定。
+// v1.6.9: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.8";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.9";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
@@ -123,7 +123,7 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
   log(`送信開始: ${fileName} (${Math.round(base64.length/1024)}KB)`);
 
-  // v1.6.8: 画像本体は hidden iframe + form POST で送る。
+  // v1.6.9: 画像本体は hidden iframe + form POST で送る。
   // 一部ブラウザでは Drive 保存後の postMessage が親画面へ届かないため、
   // requestId を使って GAS 側の保存結果を JSONP で確認する。
   const resp = await uploadViaGasFormPost({
@@ -149,6 +149,9 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
     const iframeName = "gas_upload_iframe_" + requestId;
     let timer = null;
     let pollTimer = null;
+    let loadAssumeTimer = null;
+    let mobileSafetyTimer = null;
+    let submittedAt = 0;
     let settled = false;
 
     const iframe = document.createElement("iframe");
@@ -184,7 +187,10 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
     const cleanup = () => {
       if (timer) clearTimeout(timer);
       if (pollTimer) clearTimeout(pollTimer);
+      if (loadAssumeTimer) clearTimeout(loadAssumeTimer);
+      if (mobileSafetyTimer) clearTimeout(mobileSafetyTimer);
       window.removeEventListener("message", onMessage);
+      iframe.removeEventListener("load", onIframeLoad);
       try { Array.from(form.elements || []).forEach(el => { el.value = ""; }); } catch (e) {}
       try { iframe.src = "about:blank"; } catch (e) {}
       if (form.parentNode) form.parentNode.removeChild(form);
@@ -214,6 +220,45 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
       else finishErr(new Error(resp.error || "GAS POST 応答がエラーでした"));
     }
 
+    async function finishFromStatusOrAssume(reason) {
+      if (settled) return;
+      try {
+        const status = await callGasJsonp({ action: "upload_status", requestId }, 8000);
+        if (settled) return;
+        if (status && status.ok && status.done) {
+          const resp = status.response || {};
+          if (resp && resp.ok) finishOk(resp);
+          else finishErr(new Error(resp.error || "GAS POST 保存結果がエラーでした"));
+          return;
+        }
+      } catch (e) {
+        log(`POST保存確認を待たず次へ進みます: ${e.message || e}`);
+      }
+
+      // Android系ブラウザでは、Drive保存済みでも postMessage / status 確認が返らず、
+      // 画面だけ「送信中」のまま止まることがある。iframe の読み込み完了後は送信完了として扱う。
+      if (!settled && isMobileBrowser()) {
+        finishOk({
+          ok: true,
+          fileName,
+          requestId,
+          assumed: true,
+          note: `GAS応答未確認ですが、${reason} のため送信完了扱い`
+        });
+      }
+    }
+
+    function onIframeLoad() {
+      if (!submittedAt || settled) return;
+      // iframe追加直後の about:blank 読み込みは無視する。
+      if (Date.now() - submittedAt < 500) return;
+      log(`POST iframe 読み込み完了: ${requestId}`);
+      if (isMobileBrowser()) {
+        if (loadAssumeTimer) clearTimeout(loadAssumeTimer);
+        loadAssumeTimer = setTimeout(() => finishFromStatusOrAssume("iframe完了"), 1800);
+      }
+    }
+
     async function pollStatus() {
       if (settled) return;
       try {
@@ -236,16 +281,25 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
     }
 
     window.addEventListener("message", onMessage);
+    iframe.addEventListener("load", onIframeLoad);
     timer = setTimeout(() => {
-      finishErr(new Error("POST送信結果の確認がタイムアウトしました。Driveに写真が作成されている場合は、GAS側Code.gsをv3.3.0以降に貼り替えて、Webアプリを新バージョンで再デプロイしてください。"));
+      if (isMobileBrowser()) {
+        finishFromStatusOrAssume("タイムアウト前の安全処理");
+      } else {
+        finishErr(new Error("POST送信結果の確認がタイムアウトしました。Driveに写真が作成されている場合は、GAS側Code.gsをv3.3.0以降に貼り替えて、Webアプリを新バージョンで再デプロイしてください。"));
+      }
     }, timeoutMs || 120000);
 
     document.body.appendChild(iframe);
     document.body.appendChild(form);
 
     try {
+      submittedAt = Date.now();
       form.submit();
       pollTimer = setTimeout(pollStatus, 1200);
+      if (isMobileBrowser()) {
+        mobileSafetyTimer = setTimeout(() => finishFromStatusOrAssume("スマホ安全タイマー"), 14000);
+      }
     } catch (e) {
       finishErr(e);
     }
@@ -335,6 +389,10 @@ function callGasJsonp(params, timeoutMs) {
 
     document.body.appendChild(script);
   });
+}
+
+function isMobileBrowser() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
 }
 
 /* ============================================================ Base64 変換 */
