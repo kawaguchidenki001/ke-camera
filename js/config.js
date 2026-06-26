@@ -9,7 +9,7 @@ export const APP_NAME = "北方カメラ";
 // ============================================================
 // ⚠️ Kさんが GAS をデプロイ後、URL をここに記入してください
 // https://script.google.com/macros/s/AKfycb.../exec の形式
-export const GAS_WEB_APP_URL = "";
+export const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec";
 
 // GAS 側の SHARED_TOKEN と一致させる
 // ⚠️ デフォルトのままにせず、推測されにくい文字列に変更してください
