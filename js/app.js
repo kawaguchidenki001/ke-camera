@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.11 - 撮影後バックグラウンド送信版
+// 北方カメラ v1.6.14 - 施工段階ボタン版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.11";
+} from "./config.js?v=1.6.14";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.11";
+} from "./storage.js?v=1.6.14";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.11";
-import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.11";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.11";
-import { readAllConfig } from "./sheets.js?v=1.6.11";
+} from "./ui.js?v=1.6.14";
+import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch } from "./camera.js?v=1.6.14";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.14";
+import { readAllConfig } from "./sheets.js?v=1.6.14";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.11";
+} from "./gas-uploader.js?v=1.6.14";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.11";
+} from "./photoStore.js?v=1.6.14";
 
 const { $, $$ } = dom;
 
@@ -82,6 +82,8 @@ const state = {
 
   cameraOn:      false,
   cameraTrack:   null,
+  torchSupported: false,
+  torchOn:        false,
 
   uploading:     false,   // 送信中(バックグラウンド/未送信一括)
   capturing:     false,   // 撮影画像作成・端末保存中だけ true
@@ -98,6 +100,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // 設定読み込み(Sheets)
   await loadAppConfig();
   populateProjectInfo();
+  renderStageButtons();
   refreshChips();
   await resetStaleUploading(30 * 1000);
   await refreshOutboxCard();
@@ -190,6 +193,7 @@ async function loadAppConfig({ forceFresh = false } = {}) {
 async function reloadAppConfig() {
   await loadAppConfig({ forceFresh: true });
   populateProjectInfo();
+  renderStageButtons();
   refreshChips();
   renderBoard();
 }
@@ -221,7 +225,7 @@ function refreshChips() {
   setChip("Building", state.building);
   setChip("Room",     state.room);
   setChip("Fixture",  state.fixture);
-  setChip("Stage",    state.stage);
+  renderStageButtons();
 
   // 次の連番ヒント
   const roomKey = makeRoomKey(state.building, state.room);
@@ -250,6 +254,43 @@ function setChip(key, value) {
   }
 }
 
+function renderStageButtons() {
+  const wrap = $("#stageButtons");
+  if (!wrap) return;
+  const stages = (Array.isArray(state.stages) && state.stages.length) ? state.stages : FALLBACK_STAGES;
+  wrap.innerHTML = stages.map((stage) => {
+    const active = state.stage === stage ? " active" : "";
+    return `<button class="stage-btn ${stageToneClass(stage)}${active}" type="button" data-stage="${escAttr(stage)}" aria-pressed="${state.stage === stage ? "true" : "false"}">${esc(stage)}</button>`;
+  }).join("");
+  wrap.querySelectorAll(".stage-btn").forEach(btn => {
+    btn.addEventListener("click", () => selectStage(btn.dataset.stage || ""));
+  });
+}
+
+function stageToneClass(stage) {
+  const s = String(stage || "");
+  if (s.includes("前")) return "stage-before";
+  if (s.includes("中")) return "stage-during";
+  if (s.includes("後")) return "stage-after";
+  return "stage-other";
+}
+
+function selectStage(v) {
+  if (!v) return;
+  state.stage = v;
+  setLastStage(v);
+  refreshChips();
+  renderBoard();
+}
+
+function escAttr(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 async function refreshOutboxCard() {
   let count = 0;
   try { await resetStaleUploading(3 * 60 * 1000); } catch (e) {}
@@ -270,11 +311,12 @@ function initEvents() {
   $("#chipBuilding").addEventListener("click", pickBuilding);
   $("#chipRoom").addEventListener("click", pickRoom);
   $("#chipFixture").addEventListener("click", pickFixture);
-  $("#chipStage").addEventListener("click", pickStage);
+  const chipStage = $("#chipStage"); if (chipStage) chipStage.addEventListener("click", pickStage);
 
   // 撮影
   $("#btnShoot").addEventListener("click", onShoot);
   $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
+  const lightBtn = $("#btnLight"); if (lightBtn) lightBtn.addEventListener("click", onToggleLight);
 
   // 未送信
   $("#outboxCard").addEventListener("click", openOutbox);
@@ -346,7 +388,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.11");
+  url.searchParams.set("v", "1.6.14");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -576,10 +618,14 @@ async function startCameraFlow() {
     });
     state.cameraOn = true;
     state.cameraTrack = track;
+    state.torchOn = false;
+    updateLightButton();
     setTimeout(renderBoard, 80);
   } catch (e) {
     state.cameraOn = false;
     state.cameraTrack = null;
+    state.torchOn = false;
+    updateLightButton();
     toastError(e.message);
   }
 }
@@ -590,15 +636,53 @@ function stopCameraFlow() {
   if (video) video.srcObject = null;
   state.cameraOn = false;
   state.cameraTrack = null;
+  state.torchSupported = false;
+  state.torchOn = false;
+  updateLightButton();
 }
 
 async function onSwitchCamera() {
   if (!state.cameraOn) return;
   try {
+    if (state.torchOn && state.cameraTrack) {
+      try { await setTorch(state.cameraTrack, false); } catch (e) {}
+    }
     const track = await switchCamera($("#videoEl"));
     state.cameraTrack = track;
+    state.torchOn = false;
+    updateLightButton();
     setTimeout(renderBoard, 80);
   } catch (e) { toastError(e.message); }
+}
+
+async function onToggleLight() {
+  if (!state.cameraTrack) return;
+  if (!isTorchSupported(state.cameraTrack)) {
+    toastInfo("この端末またはカメラはライトに対応していません");
+    updateLightButton();
+    return;
+  }
+  const next = !state.torchOn;
+  try {
+    await setTorch(state.cameraTrack, next);
+    state.torchOn = next;
+    updateLightButton();
+  } catch (e) {
+    state.torchOn = false;
+    updateLightButton();
+    toastError(e.message);
+  }
+}
+
+function updateLightButton() {
+  const btn = $("#btnLight");
+  if (!btn) return;
+  const supported = !!(state.cameraTrack && isTorchSupported(state.cameraTrack));
+  state.torchSupported = supported;
+  btn.hidden = !supported;
+  btn.classList.toggle("active", !!state.torchOn);
+  btn.setAttribute("aria-pressed", state.torchOn ? "true" : "false");
+  btn.title = state.torchOn ? "ライトON" : "ライトOFF";
 }
 
 /* ============================================================ 黒板表示 */
@@ -617,8 +701,8 @@ function renderBoard() {
     `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(projName)}</span></div></div>` +
     `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(place)}</span></div></div>` +
     `<div class="bov-lf"  style="height:${pct(BROWH.c)}"><span class="bv-t" data-k="c">${esc(fixture)}</span></div>` +
-    `<div class="bov-lf"  style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(stage)}</span></div>` +
-    `<div class="bov-co"  style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(company)}</span></div>`;
+    `<div class="bov-stage" style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(stage)}</span></div>` +
+    `<div class="bov-co"    style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(company)}</span></div>`;
   ov.style.display = "block";
   layoutBoard();
 }
@@ -648,9 +732,9 @@ function layoutBoard() {
   setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
   setRowFont(ov, ".bv-t[data-k='a']", "a", BROWH.a, 0.6, bw);
   setRowFont(ov, ".bv-t[data-k='b']", "b", BROWH.b, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.5, bw);  // 少し小さく
-  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.5, bw);
-  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.62, bw); // 大きめ
+  setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
+  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.72, bw); // 施工段階は中央で大きく
+  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
 
   function setRowFont(rootEl, sel, _k, frac, factor, parentW) {
     const els = rootEl.querySelectorAll(sel);

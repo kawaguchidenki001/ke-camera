@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.6.11 ・ GenCan風スタイル(簡素化)
+   北方カメラ v1.6.14 ・ 施工段階ボタン版
    ============================================================ */
 
 :root {
@@ -111,7 +111,7 @@ input { font: inherit; color: inherit; }
 .screen { display: none; }
 .screen.active { display: block; }
 
-/* ============================================================ 選択チップ(4つ) */
+/* ============================================================ 選択チップ(3つ) */
 
 .chip-row {
   display: grid;
@@ -166,6 +166,55 @@ input { font: inherit; color: inherit; }
   font-weight: 500;
 }
 
+/* ============================================================ 施工段階ボタン */
+
+.stage-picker {
+  margin-bottom: 10px;
+}
+.stage-picker-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sub);
+  margin: 2px 4px 8px;
+  letter-spacing: .04em;
+}
+.stage-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.stage-btn {
+  min-height: 48px;
+  padding: 12px 10px;
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 800;
+  letter-spacing: .02em;
+  box-shadow: var(--rise-sm);
+  border: 2px solid transparent;
+  transition: transform .06s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease;
+}
+.stage-btn:active {
+  transform: translateY(1px);
+  box-shadow: var(--well);
+}
+.stage-btn.stage-before { --stage-color: #3076d5; --stage-soft: #e4efff; }
+.stage-btn.stage-during { --stage-color: #d28a13; --stage-soft: #fff1d6; }
+.stage-btn.stage-after  { --stage-color: #23945b; --stage-soft: #def6e8; }
+.stage-btn.stage-other  { --stage-color: var(--accent); --stage-soft: var(--accent-soft); }
+.stage-btn.active {
+  color: #fff;
+  background: var(--stage-color);
+  border-color: rgba(0,0,0,.12);
+  box-shadow: inset 3px 3px 7px rgba(0,0,0,.18), inset -2px -2px 5px rgba(255,255,255,.12);
+}
+.stage-btn:not(.active) {
+  background: var(--stage-soft);
+  color: var(--stage-color);
+  border-color: rgba(0,0,0,.06);
+}
+
 /* ============================================================ カメラビュー */
 
 .bcam-wrap {
@@ -202,6 +251,12 @@ input { font: inherit; color: inherit; }
   backdrop-filter: blur(4px);
   box-shadow: 0 2px 6px rgba(0,0,0,.3);
 }
+.bcam-tool.active {
+  background: #ffd34d;
+  color: #2f2500;
+  box-shadow: inset 2px 2px 5px rgba(0,0,0,.18), 0 0 0 3px rgba(255,211,77,.35);
+}
+.bcam-tool[hidden] { display: none; }
 
 /* ============================================================ 黒板オーバーレイ(固定) */
 
@@ -251,7 +306,7 @@ input { font: inherit; color: inherit; }
   white-space: nowrap;
   transform-origin: left center;
 }
-/* 照明器具・施工段階の行(左寄せ、罫線なし) */
+/* 照明器具の行(左寄せ、罫線なし) */
 .bov-lf {
   color: #fff;
   display: flex;
@@ -266,7 +321,22 @@ input { font: inherit; color: inherit; }
   white-space: nowrap;
   transform-origin: left center;
 }
-/* 会社名(右下、大きめ) */
+/* 施工段階(中央・大きめ) */
+.bov-stage {
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  overflow: hidden;
+  text-align: center;
+}
+.bov-stage .bv-t {
+  display: inline-block;
+  white-space: nowrap;
+  transform-origin: center center;
+}
+/* 会社名(右下、小さめ) */
 .bov-co {
   color: #ffffff;
   display: flex;

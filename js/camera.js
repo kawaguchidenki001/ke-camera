@@ -1,5 +1,5 @@
 // js/camera.js
-// MediaDevices によるカメラ制御
+// MediaDevices によるカメラ制御 + ライト制御
 
 let currentStream = null;
 let currentFacing = "environment";
@@ -54,6 +54,28 @@ export function stopCamera() {
   if (currentStream) {
     for (const tr of currentStream.getTracks()) tr.stop();
     currentStream = null;
+  }
+}
+
+export function isTorchSupported(track) {
+  if (!track || typeof track.getCapabilities !== "function") return false;
+  try {
+    const caps = track.getCapabilities();
+    return !!caps && !!caps.torch;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function setTorch(track, on) {
+  if (!track) throw new Error("カメラが起動していません");
+  if (!isTorchSupported(track)) throw new Error("この端末またはカメラはライトに対応していません");
+
+  try {
+    await track.applyConstraints({ advanced: [{ torch: !!on }] });
+    return true;
+  } catch (e) {
+    throw new Error("ライトを切り替えできませんでした");
   }
 }
 

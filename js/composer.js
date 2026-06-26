@@ -1,11 +1,11 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(v1.6.0 仕様)
+// GenCan風 黒板焼き込み(v1.6.12 仕様)
 // 行構成:
 //   1) 工事名(ラベル+値、下罫線あり)
 //   2) 場所(ラベル+値、下罫線あり)
 //   3) 照明器具(左寄せ、少し小さく、下罫線なし)
-//   4) 施工段階(左寄せ、少し小さく、下罫線なし)
-//   5) 会社名(右下角、大きめ、下罫線なし)
+//   4) 施工段階(中央・大きめ、下罫線なし)
+//   5) 会社名(右下角、小さめ、下罫線なし)
 
 export const BOARD_HR = 0.73;
 
@@ -13,9 +13,9 @@ export const BOARD_HR = 0.73;
 export const BROWH = {
   a: 0.18,  // 工事名
   b: 0.18,  // 場所
-  c: 0.22,  // 照明器具
-  d: 0.20,  // 施工段階
-  e: 0.22,  // 会社名(大きめ)
+  c: 0.20,  // 照明器具
+  d: 0.24,  // 施工段階(少し大きく)
+  e: 0.20,  // 会社名(小さめ)
 };
 
 /**
@@ -147,10 +147,10 @@ function drawBoard(canvas, { boardRect, labels, values }) {
     yy += rh;
   }
 
-  // 行3,4: 左寄せ、少し小さく、下罫線なし
+  // 行3: 照明器具(左寄せ、少し小さく)
   function rowLeft(value, hf) {
     const rh = bh * hf;
-    const fs = Math.max(9, Math.floor(rh * 0.5));  // 少し小さく
+    const fs = Math.max(9, Math.floor(rh * 0.48));
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "left";
@@ -160,16 +160,29 @@ function drawBoard(canvas, { boardRect, labels, values }) {
     yy += rh;
   }
 
-  // 行5: 会社名(右下、大きめ)
+  // 行4: 施工段階(中央・大きめ)
+  function rowStage(value, hf) {
+    const rh = bh * hf;
+    const compact = String(value || "").trim().length <= 4;
+    const fs = Math.max(12, Math.floor(rh * (compact ? 0.74 : 0.66)));
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold " + fs + "px " + jpFont();
+    ctx.textAlign = "center";
+    if (value) {
+      ctx.fillText(value, bx + bw / 2, yy + rh / 2, bw - pad * 2);
+    }
+    yy += rh;
+  }
+
+  // 行5: 会社名(右下、小さめ)
   function rowCompany(value, hf) {
     const rh = bh * hf;
-    const fs = Math.max(10, Math.floor(rh * 0.62));  // 大きめ
+    const fs = Math.max(9, Math.floor(rh * 0.42));
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "right";
     if (value) {
-      // 右下角に近い位置(下に寄せる)
-      ctx.fillText(value, bx + bw - pad, yy + rh - rh * 0.3, bw - pad * 2);
+      ctx.fillText(value, bx + bw - pad, yy + rh - rh * 0.28, bw - pad * 2);
     }
     yy += rh;
   }
@@ -177,9 +190,9 @@ function drawBoard(canvas, { boardRect, labels, values }) {
   // 5 行を描画
   rowLV(labels.a || "工事名", values.a || "", BROWH.a);
   rowLV(labels.b || "場所",   values.b || "", BROWH.b);
-  rowLeft(values.c || "", BROWH.c);  // 照明器具(左寄せ)
-  rowLeft(values.d || "", BROWH.d);  // 施工段階(左寄せ)
-  rowCompany(values.e || "", BROWH.e);  // 会社名(右下大きめ)
+  rowLeft(values.c || "", BROWH.c);
+  rowStage(values.d || "", BROWH.d);
+  rowCompany(values.e || "", BROWH.e);
 }
 
 /* ============================================================ utilities */

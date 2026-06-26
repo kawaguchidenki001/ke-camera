@@ -12,13 +12,13 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.6.11" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.11" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.11" />
-  <link rel="stylesheet" href="./style.css?v=1.6.11" />
+  <link rel="manifest" href="./manifest.json?v=1.6.14" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.14" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.14" />
+  <link rel="stylesheet" href="./style.css?v=1.6.14" />
 
   <script>
-  window.__KITAGATA_BUILD__ = "1.6.11";
+  window.__KITAGATA_BUILD__ = "1.6.14";
   window.__KITAGATA_FALLBACK_CONFIG__ = {
     GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
     SHARED_TOKEN: "kitagata-photo-2026"
@@ -40,7 +40,7 @@
     } finally {
       const url = new URL(location.href);
       url.searchParams.delete("reset");
-      url.searchParams.set("v", "1.6.11");
+      url.searchParams.set("v", "1.6.14");
       location.replace(url.toString());
     }
   })();
@@ -79,21 +79,26 @@
         <span class="chip-label">照明器具</span>
         <span class="chip-value" id="chipFixtureVal">—</span>
       </button>
-      <button class="chip" id="chipStage" type="button">
-        <span class="chip-label">施工段階</span>
-        <span class="chip-value" id="chipStageVal">—</span>
-      </button>
     </div>
 
-    <!-- カメラビュー + 黒板オーバーレイ -->
+        <!-- カメラビュー + 黒板オーバーレイ -->
     <div class="bcam-wrap" id="bcamWrap">
       <video id="videoEl" autoplay playsinline muted></video>
       <div class="bcam-tools">
         <button class="bcam-tool" id="btnSwitchCamera" aria-label="カメラ切替" type="button">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM12 18a5 5 0 0 1-5-5H5l3-3 3 3H9a3 3 0 0 0 3 3 3 3 0 0 0 0-6"/></svg>
         </button>
+        <button class="bcam-tool" id="btnLight" aria-label="ライト" type="button" hidden>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2h6l-1 8h3l-6 12 1-9H8z"/></svg>
+        </button>
       </div>
       <div class="bov-bd" id="boardOverlay" style="display:none;"></div>
+    </div>
+
+    <!-- 施工段階ボタン(画像の下) -->
+    <div class="stage-picker" id="stagePicker">
+      <div class="stage-picker-label">施工段階</div>
+      <div class="stage-buttons" id="stageButtons" role="group" aria-label="施工段階"></div>
     </div>
 
     <!-- 次の連番ヒント(小) -->
@@ -239,7 +244,7 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js?v=1.6.11"></script>
+<script type="module" src="./js/app.js?v=1.6.14"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -249,7 +254,7 @@ if ('serviceWorker' in navigator) {
       refreshing = true;
       location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=1.6.11', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js?v=1.6.14', { updateViaCache: 'none' })
       .then(reg => {
         reg.update();
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
