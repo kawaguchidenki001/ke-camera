@@ -1,831 +1,268 @@
-/* ============================================================
-   北方カメラ v1.6.14 ・ 施工段階ボタン版
-   ============================================================ */
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0d9aa0" />
+  <meta name="description" content="県営北方住宅 LED 改修工事 専用 小黒板カメラ" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="北方カメラ" />
 
-:root {
-  --bg:        #e8ecf2;
-  --ink:       #173a3c;
-  --sub:       #5a8284;
-  --accent:    #0d9aa0;
-  --accent-d:  #0a7d82;
-  --accent-soft: #dff5f5;
-  --line:      #cce9e9;
-  --card:      #ffffff;
-  --board:     #1a8c78;
-  --board-d:   #156e5e;
-  --warn:      #d97b12;
-  --warn-d:    #b8650a;
-  --danger:    #d64646;
-  --success:   #1e8e3e;
+  <title>北方カメラ</title>
 
-  --shadow:    0 2px 10px rgba(40,60,100,.10);
-  --shadow-lg: 0 8px 24px rgba(40,60,100,.16);
-  --rise:      6px 6px 12px #cdd3dc, -6px -6px 12px #ffffff;
-  --rise-sm:   4px 4px  8px #cdd3dc, -4px -4px  8px #ffffff;
-  --well:      inset 3px 3px 6px #cdd3dc, inset -3px -3px 6px #ffffff;
-  --well-soft: inset 2px 2px 5px #d3d9e1, inset -2px -2px 5px #fbfdff;
+  <link rel="manifest" href="./manifest.json?v=1.6.15" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.15" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.15" />
+  <link rel="stylesheet" href="./style.css?v=1.6.15" />
 
-  --font-jp: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", sans-serif;
-  --font-en: "Manrope", "Hiragino Sans", sans-serif;
+  <script>
+  window.__KITAGATA_BUILD__ = "1.6.15";
+  window.__KITAGATA_FALLBACK_CONFIG__ = {
+    GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
+    SHARED_TOKEN: "kitagata-photo-2026"
+  };
+  (async function() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("reset")) return;
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (e) {
+      console.warn("reset failed", e);
+    } finally {
+      const url = new URL(location.href);
+      url.searchParams.delete("reset");
+      url.searchParams.set("v", "1.6.15");
+      location.replace(url.toString());
+    }
+  })();
+  </script>
+</head>
+<body>
 
-  --touch-target: 48px;
-  --radius:     12px;
-  --radius-lg:  16px;
-  --radius-pill: 999px;
-}
+<header class="app-header" id="appHeader">
+  <button class="header-btn" id="btnMenu" aria-label="メニュー" type="button">
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+      <path fill="currentColor" d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/>
+    </svg>
+  </button>
+  <h1 class="app-title">北方カメラ</h1>
+  <button class="header-btn" id="authStatusBtn" aria-label="接続状態" type="button">
+    <span id="authIndicator" class="auth-indicator off" aria-hidden="true"></span>
+  </button>
+</header>
 
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; }
-html, body { padding: 0; }
+<main class="app-main" id="appMain">
 
-body {
-  min-height: 100vh;
-  color: var(--ink);
-  font-family: var(--font-jp);
-  font-size: 16px;
-  line-height: 1.5;
-  background: var(--bg);
-  -webkit-text-size-adjust: 100%;
-  overscroll-behavior-y: none;
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-}
+  <!-- ========== カメラ画面(起動時から表示) ========== -->
+  <section class="screen active camera-screen" data-screen="camera">
 
-button { font: inherit; cursor: pointer; border: none; background: transparent; color: inherit; }
-input { font: inherit; color: inherit; }
+    <!-- 選択チップ 4 つ -->
+    <div class="chip-row" id="chipRow">
+      <button class="chip" id="chipBuilding" type="button">
+        <span class="chip-label">棟</span>
+        <span class="chip-value" id="chipBuildingVal">—</span>
+      </button>
+      <button class="chip" id="chipRoom" type="button">
+        <span class="chip-label">部屋</span>
+        <span class="chip-value" id="chipRoomVal">—</span>
+      </button>
+      <button class="chip" id="chipFixture" type="button">
+        <span class="chip-label">照明器具</span>
+        <span class="chip-value" id="chipFixtureVal">—</span>
+      </button>
+    </div>
 
-/* ============================================================ ヘッダー */
+        <!-- カメラビュー + 黒板オーバーレイ -->
+    <div class="bcam-wrap" id="bcamWrap">
+      <video id="videoEl" autoplay playsinline muted></video>
+      <div class="bcam-tools">
+        <button class="bcam-tool" id="btnSwitchCamera" aria-label="カメラ切替" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM12 18a5 5 0 0 1-5-5H5l3-3 3 3H9a3 3 0 0 0 3 3 3 3 0 0 0 0-6"/></svg>
+        </button>
+        <button class="bcam-tool" id="btnLight" aria-label="ライト" type="button" hidden>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2h6l-1 8h3l-6 12 1-9H8z"/></svg>
+        </button>
+      </div>
+      <div class="bov-bd" id="boardOverlay" style="display:none;"></div>
+    </div>
 
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 12px;
-  height: 52px;
-  padding: 0 12px;
-  background: var(--bg);
-}
-.app-title {
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: .04em;
-  color: var(--accent-d);
-  text-align: center;
-}
-.header-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  background: var(--bg);
-  color: var(--accent);
-  border-radius: 50%;
-  box-shadow: var(--rise-sm);
-}
-.header-btn:active { box-shadow: var(--well); }
-.header-btn.dark { color: var(--ink); }
+    <!-- 施工段階ボタン(画像の下) -->
+    <div class="stage-picker" id="stagePicker">
+      <div class="stage-picker-label">施工段階</div>
+      <div class="stage-buttons" id="stageButtons" role="group" aria-label="施工段階"></div>
+    </div>
 
-.auth-indicator {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--bg);
-  box-shadow: var(--well-soft);
-}
-.auth-indicator.on  { background: var(--success); box-shadow: 0 0 0 2px rgba(30,142,62,.25); }
-.auth-indicator.off { background: var(--danger);  box-shadow: 0 0 0 2px rgba(214,70,70,.25); }
+    <!-- 次の連番ヒント(小) -->
+    <p class="next-hint" id="nextSeqHint"></p>
 
-/* ============================================================ Main */
+    <!-- 未送信カード(あれば表示) -->
+    <button class="outbox-card" id="outboxCard" type="button" hidden>
+      <div class="oc-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path fill="currentColor" d="M19 8h-3V3H8v5H5l7 7 7-7zM5 19v2h14v-2H5z" transform="rotate(180 12 12)"/>
+        </svg>
+      </div>
+      <div class="oc-body">
+        <span class="oc-title">未送信の写真</span>
+        <span class="oc-count" id="outboxCount">0 枚</span>
+      </div>
+      <span class="oc-chevron" aria-hidden="true">›</span>
+    </button>
 
-.app-main {
-  min-height: calc(100vh - 52px);
-  padding: 8px 12px 80px;
-  max-width: 720px;
-  margin: 0 auto;
-}
+    <!-- 撮影ボタン(下部固定) -->
+    <div class="bshoot-bar">
+      <button class="savebtn" id="btnShoot" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.4-2h6l1.4 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3"/></svg>
+        撮影して保存
+      </button>
+    </div>
+  </section>
 
-.screen { display: none; }
-.screen.active { display: block; }
+  <!-- ========== Outbox 画面 ========== -->
+  <section class="screen" data-screen="outbox">
+    <div class="screen-head">
+      <button class="header-btn dark" id="btnOutboxBack" aria-label="戻る" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg>
+      </button>
+      <h2>未送信写真</h2>
+      <span class="outbox-summary" id="outboxSummary"></span>
+    </div>
 
-/* ============================================================ 選択チップ(3つ) */
+    <div class="outbox-actions">
+      <button class="btn btn-primary btn-lg" id="btnUploadAll" type="button">
+        すべて Drive に送信
+      </button>
+      <button class="btn btn-ghost" id="btnRefreshOutbox" type="button">再読み込み</button>
+    </div>
 
-.chip-row {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.chip {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  min-height: 56px;
-  background: var(--bg);
-  box-shadow: var(--rise-sm);
-  border-radius: var(--radius);
-  text-align: left;
-  position: relative;
-}
-.chip:active { box-shadow: var(--well); }
-.chip::after {
-  content: "▾";
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--sub);
-  font-size: 12px;
-}
-.chip-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  color: var(--sub);
-  display: block;
-  margin-bottom: 2px;
-}
-.chip-value {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--ink);
-  display: block;
-  padding-right: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.chip.empty .chip-value {
-  color: var(--sub);
-  opacity: .55;
-  font-weight: 500;
-}
+    <div class="outbox-progress" id="outboxProgress" hidden>
+      <div class="op-bar"><div class="op-fill" id="opFill"></div></div>
+      <p class="op-text" id="opText">送信中…</p>
+    </div>
 
-/* ============================================================ 施工段階ボタン */
+    <div class="outbox-list" id="outboxList"></div>
 
-.stage-picker {
-  margin-bottom: 10px;
-}
-.stage-picker-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--sub);
-  margin: 2px 4px 8px;
-  letter-spacing: .04em;
-}
-.stage-buttons {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-.stage-btn {
-  min-height: 48px;
-  padding: 12px 10px;
-  border-radius: 14px;
-  background: var(--bg);
-  color: var(--ink);
-  font-weight: 800;
-  letter-spacing: .02em;
-  box-shadow: var(--rise-sm);
-  border: 2px solid transparent;
-  transition: transform .06s ease, box-shadow .12s ease, background .12s ease, color .12s ease, border-color .12s ease;
-}
-.stage-btn:active {
-  transform: translateY(1px);
-  box-shadow: var(--well);
-}
-.stage-btn.stage-before { --stage-color: #3076d5; --stage-soft: #e4efff; }
-.stage-btn.stage-during { --stage-color: #d28a13; --stage-soft: #fff1d6; }
-.stage-btn.stage-after  { --stage-color: #23945b; --stage-soft: #def6e8; }
-.stage-btn.stage-other  { --stage-color: var(--accent); --stage-soft: var(--accent-soft); }
-.stage-btn.active {
-  color: #fff;
-  background: var(--stage-color);
-  border-color: rgba(0,0,0,.12);
-  box-shadow: inset 3px 3px 7px rgba(0,0,0,.18), inset -2px -2px 5px rgba(255,255,255,.12);
-}
-.stage-btn:not(.active) {
-  background: var(--stage-soft);
-  color: var(--stage-color);
-  border-color: rgba(0,0,0,.06);
-}
+    <div class="outbox-empty" id="outboxEmpty" hidden>
+      <p>未送信の写真はありません</p>
+    </div>
+  </section>
 
-/* ============================================================ カメラビュー */
+</main>
 
-.bcam-wrap {
-  position: relative;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: #111;
-  line-height: 0;
-  aspect-ratio: 4 / 3;
-  box-shadow: var(--rise-sm);
-  margin-bottom: 8px;
-}
-#videoEl {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.bcam-tools {
-  position: absolute;
-  top: 8px; right: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 10;
-}
-.bcam-tool {
-  width: 42px; height: 42px;
-  border-radius: 50%;
-  background: rgba(0,0,0,.55);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 6px rgba(0,0,0,.3);
-}
-.bcam-tool.active {
-  background: #ffd34d;
-  color: #2f2500;
-  box-shadow: inset 2px 2px 5px rgba(0,0,0,.18), 0 0 0 3px rgba(255,211,77,.35);
-}
-.bcam-tool[hidden] { display: none; }
+<!-- ========== メニュードロワー ========== -->
+<nav class="menu" id="menu">
+  <div class="menu-backdrop" data-close-menu></div>
+  <div class="menu-panel">
+    <div class="menu-head">
+      <strong>北方カメラ</strong>
+      <button class="header-btn dark" data-close-menu aria-label="閉じる" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <ul class="menu-list">
+      <li><button id="menuPhotographer" type="button">撮影者を変更</button></li>
+      <li><button id="menuReloadConfig" type="button">設定を再読み込み(Sheets)</button></li>
+      <li><button id="menuTestGas" type="button">GAS 接続テスト</button></li>
+      <li><button id="menuSetGasUrl" type="button">GAS URL設定</button></li>
+      <li><button id="menuOutbox" type="button">未送信の写真</button></li>
+      <li><button id="menuForceUpdate" type="button">アプリを更新(キャッシュ削除)</button></li>
+      <li><button id="menuDebug" type="button">送信ログを表示</button></li>
+    </ul>
+    <div class="menu-foot">
+      <p class="menu-version">小黒板カメラ <span id="appVersionMenu"></span></p>
+      <p class="menu-config-source" id="configSource"></p>
+      <p class="menu-photog-show" id="menuPhotogShow"></p>
+    </div>
+  </div>
+</nav>
 
-/* ============================================================ 黒板オーバーレイ(固定) */
+<!-- ========== Picker(下からの選択シート) ========== -->
+<div class="picker" id="picker" aria-hidden="true">
+  <div class="picker-backdrop" id="pickerBackdrop"></div>
+  <div class="picker-panel">
+    <div class="picker-head">
+      <h3 id="pickerTitle">選択</h3>
+      <button class="header-btn dark" id="pickerClose" aria-label="閉じる" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
 
-.bov-bd {
-  position: absolute;
-  background: var(--board);
-  border: 2px solid #fff;
-  box-sizing: border-box;
-  font-family: var(--font-jp);
-  font-size: 10px;
-  line-height: 1;
-  overflow: hidden;
-  z-index: 5;
-  /* ドラッグ無効 */
-  pointer-events: none;
-}
-.bov-row {
-  display: flex;
-  border-bottom: 1px solid rgba(255,255,255,.5);
-}
-.bov-lb {
-  width: 17%;
-  border-right: 1px solid rgba(255,255,255,.5);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  overflow: hidden;
-}
-.bov-lb .bv-l {
-  display: inline-block;
-  white-space: nowrap;
-}
-.bov-vl {
-  flex: 1;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  padding-left: 5%;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.bov-vl .bv-t {
-  display: inline-block;
-  white-space: nowrap;
-  transform-origin: left center;
-}
-/* 照明器具の行(左寄せ、罫線なし) */
-.bov-lf {
-  color: #fff;
-  display: flex;
-  align-items: center;
-  padding-left: 5%;
-  font-weight: 700;
-  overflow: hidden;
-  /* 下罫線なし */
-}
-.bov-lf .bv-t {
-  display: inline-block;
-  white-space: nowrap;
-  transform-origin: left center;
-}
-/* 施工段階(中央・大きめ) */
-.bov-stage {
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  overflow: hidden;
-  text-align: center;
-}
-.bov-stage .bv-t {
-  display: inline-block;
-  white-space: nowrap;
-  transform-origin: center center;
-}
-/* 会社名(右下、小さめ) */
-.bov-co {
-  color: #ffffff;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  padding: 0 4% 3% 0;
-  font-weight: 800;
-  overflow: hidden;
-}
-.bov-co .bv-t {
-  display: inline-block;
-  white-space: nowrap;
-  transform-origin: right bottom;
-}
+    <div class="picker-list" id="pickerList"></div>
 
-/* ============================================================ 次の連番ヒント */
+    <div class="picker-input-wrap" id="pickerInputWrap" hidden>
+      <input type="text" id="pickerInput" placeholder="自由入力…" />
+      <button class="btn btn-primary" id="pickerInputConfirm" type="button">追加</button>
+    </div>
 
-.next-hint {
-  text-align: center;
-  font-size: 12px;
-  color: var(--sub);
-  margin: 6px 0 6px;
-}
+    <div class="picker-footer" id="pickerFooter" hidden></div>
+  </div>
+</div>
 
-/* ============================================================ 未送信カード */
+<!-- ========== トースト・ローディング ========== -->
+<div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
-.outbox-card {
-  display: grid;
-  grid-template-columns: 44px 1fr 22px;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 16px;
-  background: var(--bg);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--rise-sm);
-  margin-bottom: 10px;
-  text-align: left;
-}
-.outbox-card:active { box-shadow: var(--well); }
-.outbox-card .oc-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px; height: 44px;
-  border-radius: 50%;
-  background: var(--warn);
-  color: #fff;
-  box-shadow: var(--rise-sm);
-}
-.outbox-card.warn .oc-icon { background: var(--danger); }
-.outbox-card .oc-body { display: flex; flex-direction: column; }
-.outbox-card .oc-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--warn-d);
-  letter-spacing: .04em;
-}
-.outbox-card.warn .oc-title { color: var(--danger); }
-.outbox-card .oc-count {
-  font-size: 17px;
-  font-weight: 800;
-  color: var(--ink);
-}
-.outbox-card .oc-chevron {
-  font-size: 22px;
-  color: var(--sub);
-}
+<div class="modal" id="loadingModal" aria-hidden="true">
+  <div class="modal-backdrop"></div>
+  <div class="modal-panel">
+    <div class="spinner" aria-hidden="true"></div>
+    <p id="loadingText">処理中…</p>
+  </div>
+</div>
 
-/* ============================================================ 撮影バー(下部固定) */
+<!-- 送信ログ -->
+<div class="menu" id="debugPanel">
+  <div class="menu-backdrop" id="debugClose"></div>
+  <div class="menu-panel" style="left:auto;right:0;width:min(92%,440px);">
+    <div class="menu-head">
+      <strong>送信ログ</strong>
+      <button class="header-btn dark" id="debugClose2" aria-label="閉じる" type="button">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div id="debugLog" style="flex:1;overflow-y:auto;padding:12px 14px;font-family:monospace;font-size:11px;line-height:1.6;color:var(--ink);white-space:pre-wrap;word-break:break-all;"></div>
+    <div class="menu-foot">
+      <button class="btn btn-ghost" id="debugClear" type="button" style="width:100%;">ログを消去</button>
+    </div>
+  </div>
+</div>
 
-.bshoot-bar {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  z-index: 30;
-  padding: 11px 14px calc(env(safe-area-inset-bottom) + 11px);
-  background: var(--bg);
-  box-shadow: 0 -6px 16px -8px rgba(20,30,50,.4);
-  display: flex;
-  gap: 10px;
-}
-.bshoot-bar .savebtn {
-  flex: 1;
-  min-height: 54px;
-  padding: 0 14px;
-  background: var(--warn);
-  color: #fff;
-  font-weight: 800;
-  font-size: 16px;
-  border-radius: var(--radius);
-  box-shadow: var(--rise-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-.bshoot-bar .savebtn:active { box-shadow: var(--well-soft); }
-.bshoot-bar .savebtn:disabled { opacity: 0.45; }
+<!-- 隠し: 工事情報の値を保持する(画面表示しない) -->
+<div hidden>
+  <span id="projName"></span>
+  <span id="projNumber"></span>
+  <span id="projLocation"></span>
+  <span id="projCompany"></span>
+  <span id="appVersion"></span>
+</div>
 
-/* ============================================================ Buttons */
+<script type="module" src="./js/app.js?v=1.6.15"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js?v=1.6.15', { updateViaCache: 'none' })
+      .then(reg => {
+        reg.update();
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      })
+      .catch(err => console.warn('SW 登録失敗:', err));
+  });
+}
+</script>
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 0 18px;
-  border-radius: var(--radius);
-  font-family: var(--font-jp);
-  font-weight: 700;
-  font-size: 15px;
-  background: var(--bg);
-  color: var(--ink);
-  box-shadow: var(--rise-sm);
-}
-.btn:active:not(:disabled) { box-shadow: var(--well); }
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn-lg { min-height: 54px; font-size: 16px; }
-.btn-primary { background: var(--accent); color: #fff; box-shadow: var(--rise); }
-.btn-primary:active:not(:disabled) { box-shadow: var(--well-soft); }
-.btn-ghost { background: var(--bg); color: var(--accent-d); box-shadow: var(--rise-sm); }
-
-/* ============================================================ Outbox 画面 */
-
-.screen[data-screen="outbox"] .screen-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.screen[data-screen="outbox"] .screen-head h2 {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--accent-d);
-  margin: 0;
-  flex: 1;
-}
-.outbox-summary {
-  font-size: 12px;
-  color: var(--sub);
-}
-.outbox-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.outbox-progress {
-  background: var(--bg);
-  box-shadow: var(--well-soft);
-  border-radius: var(--radius);
-  padding: 12px;
-  margin-bottom: 14px;
-}
-.op-bar {
-  height: 8px;
-  background: var(--bg);
-  box-shadow: var(--well);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-.op-fill {
-  height: 100%;
-  background: var(--accent);
-  width: 0%;
-  transition: width .2s ease;
-}
-.op-text {
-  margin: 0;
-  font-size: 12px;
-  text-align: center;
-  color: var(--sub);
-}
-.outbox-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-}
-.outbox-item {
-  background: var(--bg);
-  border-radius: var(--radius);
-  box-shadow: var(--rise-sm);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.outbox-item .oi-thumb {
-  aspect-ratio: 4/3;
-  background: #111;
-  position: relative;
-  overflow: hidden;
-}
-.outbox-item .oi-thumb img {
-  width: 100%; height: 100%; object-fit: cover;
-}
-.outbox-item .oi-meta {
-  padding: 8px 10px;
-  font-size: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.outbox-item .oi-loc {
-  font-weight: 800;
-  font-size: 13px;
-  color: var(--ink);
-}
-.outbox-item .oi-type {
-  color: var(--sub);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.outbox-item .oi-date {
-  color: var(--sub);
-  font-family: var(--font-en);
-  font-size: 10px;
-}
-.outbox-item .oi-status {
-  position: absolute;
-  top: 4px; right: 4px;
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: var(--radius-pill);
-  background: rgba(0,0,0,.7);
-  color: #fff;
-}
-.outbox-item .oi-status.pending { background: var(--warn); }
-.outbox-item .oi-status.uploading { background: var(--accent); }
-.outbox-item .oi-status.failed { background: var(--danger); }
-.outbox-item .oi-delete {
-  position: absolute;
-  top: 4px; left: 4px;
-  width: 28px; height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,.55);
-  color: #fff;
-  border-radius: 50%;
-}
-.outbox-empty {
-  text-align: center;
-  padding: 48px 16px;
-  color: var(--sub);
-  background: var(--bg);
-  box-shadow: var(--well-soft);
-  border-radius: var(--radius-lg);
-}
-
-/* ============================================================ メニュー */
-
-.menu {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: none;
-}
-.menu.open { display: block; }
-.menu-backdrop {
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,.5);
-}
-.menu-panel {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: min(80%, 320px);
-  background: var(--bg);
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-lg);
-  padding-top: env(safe-area-inset-top);
-}
-.menu-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  background: var(--bg);
-}
-.menu-head strong {
-  font-weight: 700;
-  color: var(--accent-d);
-  font-size: 16px;
-}
-.menu-list {
-  list-style: none;
-  margin: 0;
-  padding: 8px 0;
-  flex: 1;
-}
-.menu-list button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 14px 18px;
-  font-size: 15px;
-  color: var(--ink);
-  min-height: 48px;
-}
-.menu-list button:active { background: var(--accent-soft); }
-.menu-foot {
-  padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
-  background: var(--bg);
-  box-shadow: var(--well-soft);
-}
-.menu-version {
-  margin: 0;
-  font-family: var(--font-en);
-  font-size: 11px;
-  color: var(--sub);
-  text-align: center;
-}
-.menu-config-source {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--success);
-  text-align: center;
-}
-.menu-config-source.warn { color: var(--warn-d); }
-.menu-photog-show {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--sub);
-  text-align: center;
-}
-
-/* ============================================================ Picker */
-
-.picker {
-  position: fixed;
-  inset: 0;
-  z-index: 220;
-  display: none;
-}
-.picker.open { display: block; }
-.picker-backdrop {
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,.45);
-}
-.picker-panel {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  max-height: 75vh;
-  background: var(--bg);
-  border-radius: 18px 18px 0 0;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 -8px 24px rgba(0,0,0,.2);
-  animation: slideUp .22s ease;
-  padding-bottom: env(safe-area-inset-bottom);
-}
-@keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
-.picker-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-}
-.picker-head h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--accent-d);
-}
-.picker-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0 8px;
-}
-.picker-item {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  text-align: left;
-  padding: 14px 18px;
-  min-height: 52px;
-}
-.picker-item:active { background: var(--accent-soft); }
-.picker-item.selected {
-  background: var(--accent-soft);
-  border-left: 4px solid var(--accent);
-}
-.picker-item .pi-label {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.picker-item .pi-sub {
-  font-size: 11px;
-  color: var(--sub);
-  margin-top: 2px;
-}
-.picker-input-wrap {
-  display: flex;
-  gap: 9px;
-  padding: 12px 18px;
-  background: var(--bg);
-  box-shadow: var(--well-soft);
-}
-.picker-input-wrap input {
-  flex: 1;
-  min-height: 46px;
-  padding: 0 14px;
-  background: var(--bg);
-  box-shadow: var(--well);
-  border-radius: var(--radius);
-  font-size: 16px;
-  border: none;
-}
-.picker-footer {
-  padding: 8px 18px;
-}
-.picker-footer .btn { width: 100%; }
-
-/* ============================================================ Toast / Modal */
-
-.toast-container {
-  position: fixed;
-  left: 50%;
-  bottom: calc(80px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 400;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-}
-.toast {
-  background: var(--ink);
-  color: #fff;
-  padding: 12px 16px;
-  border-radius: var(--radius);
-  font-size: 14px;
-  box-shadow: var(--shadow-lg);
-  pointer-events: auto;
-  max-width: min(92vw, 480px);
-}
-.toast.success { background: var(--success); }
-.toast.error   { background: var(--danger); }
-.toast.info    { background: var(--accent); }
-
-.modal {
-  position: fixed;
-  inset: 0;
-  z-index: 300;
-  display: none;
-}
-.modal.open { display: block; }
-.modal-backdrop {
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,.5);
-}
-.modal-panel {
-  position: absolute;
-  left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  background: var(--bg);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  text-align: center;
-  min-width: 240px;
-  box-shadow: var(--shadow-lg);
-}
-.spinner {
-  width: 44px; height: 44px;
-  border: 4px solid var(--bg);
-  box-shadow: var(--well-soft);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .8s linear infinite;
-  margin: 0 auto 12px;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-[hidden] { display: none !important; }
-
-@media (max-width: 380px) {
-  .app-title { font-size: 15px; }
-  .chip-value { font-size: 13px; }
-  .chip-label { font-size: 10px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+</body>
+</html>

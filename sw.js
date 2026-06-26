@@ -1,90 +1,39 @@
-// sw.js
-// 北方カメラ - PWA キャッシュ
-
-const VERSION = "v1.6.14";
-const APP_CACHE = `kitagata-cam-${VERSION}`;
-
-const PRECACHE = [
-  "./",
-  "./index.html",
-  "./style.css",
-  "./manifest.json",
-  "./js/app.js",
-  "./js/config.js",
-  "./js/storage.js",
-  "./js/photoStore.js",
-  "./js/ui.js",
-  "./js/sheets.js",
-  "./js/gas-uploader.js",
-  "./js/camera.js",
-  "./js/composer.js",
-  "./icons/icon.svg",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(APP_CACHE)
-      .then((cache) => cache.addAll(PRECACHE))
-      .then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter(k => k !== APP_CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
-  if (event.data && event.data.type === "CLEAR_CACHE") {
-    event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
-  }
-});
-
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  const url = new URL(req.url);
-
-  if (req.method !== "GET") return;
-
-  // Google API / GAS はキャッシュしない
-  if (url.hostname.endsWith("googleapis.com") ||
-      url.hostname.endsWith("google.com") ||
-      url.hostname === "accounts.google.com" ||
-      url.hostname.includes("script.google")) {
-    return;
-  }
-
-  if (url.origin === self.location.origin) {
-    event.respondWith(networkFirst(req));
-    return;
-  }
-
-  event.respondWith(fetch(req).catch(() => caches.match(req)));
-});
-
-async function networkFirst(req) {
-  const cache = await caches.open(APP_CACHE);
-  try {
-    const fresh = await fetch(req, { cache: "reload" });
-    if (fresh && fresh.status === 200 && fresh.type === "basic") {
-      cache.put(req, fresh.clone());
+{
+  "name": "北方カメラ 県営北方住宅LED工事",
+  "short_name": "北方カメラ",
+  "description": "県営北方住宅室内照明LED化改修工事専用の小黒板カメラ(オフライン対応)",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e8ecf2",
+  "theme_color": "#0d9aa0",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
     }
-    return fresh;
-  } catch (e) {
-    const cached = await cache.match(req);
-    if (cached) return cached;
-    if (req.mode === "navigate") {
-      const fallback = await cache.match("./index.html");
-      if (fallback) return fallback;
-    }
-    throw e;
-  }
+  ],
+  "categories": ["productivity", "utilities", "photo"]
 }
