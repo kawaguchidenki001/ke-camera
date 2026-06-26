@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.6.9 ・ GenCan風スタイル(簡素化)
+   北方カメラ v1.6.10 ・ GenCan風スタイル(簡素化)
    ============================================================ */
 
 :root {
@@ -758,28 +758,4 @@ input { font: inherit; color: inherit; }
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* ============================================================ v1.6.9 常時表示 設定ボタン */
-.quick-actions {
-  display: grid;
-  grid-template-columns: 1.1fr 1.1fr .8fr;
-  gap: 8px;
-  margin: 0 0 10px;
-}
-.quick-action {
-  min-height: 42px;
-  padding: 0 10px;
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--accent-d);
-  font-size: 13px;
-  font-weight: 800;
-  box-shadow: var(--rise-sm);
-  white-space: nowrap;
-}
-.quick-action:active { box-shadow: var(--well); }
-@media (max-width: 420px) {
-  .quick-actions { grid-template-columns: 1fr 1fr; }
-  #quickOpenMenu { grid-column: 1 / -1; }
 }
