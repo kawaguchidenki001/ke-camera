@@ -1,8 +1,8 @@
 // js/gas-uploader.js
 // GAS Web App と通信
-// v1.6.5: 撮影画像は iframe form POST で送信(URL長制限対策)。ping は JSONP GET。
+// v1.6.6: 撮影画像は iframe form POST で送信(URL長制限対策)。ping は JSONP GET。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.5";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.6";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
@@ -123,27 +123,24 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
   log(`送信開始: ${fileName} (${Math.round(base64.length/1024)}KB)`);
 
-  // v1.6.5: 長いURLで失敗するため、画像本体は GET ではなく hidden iframe + form POST で送る。
-  try {
-    const resp = await uploadViaGasFormPost({
-      base64, fileName, folderName, mime, metaStr,
-      timeoutMs: FORM_POST_TIMEOUT_MS,
-    });
-    log(`POST送信応答: ${JSON.stringify(resp)}`);
-    if (!resp || !resp.ok) throw new Error(resp?.error || "POST送信失敗");
-    return resp;
-  } catch (e) {
-    log(`POST送信失敗: ${e.message}`);
-    // GAS側Code.gsがまだ旧版でも動く可能性があるように、短いチャンクのJSONPへフォールバック。
-    log("短い分割GETで再試行します…");
-    return uploadViaGasJsonpChunks({ base64, fileName, folderName, mime, metaStr, onLog });
-  }
+  // v1.6.6: 画像本体は hidden iframe + form POST で送る。
+  // 一部ブラウザでは Drive 保存後の postMessage が親画面へ届かないため、
+  // requestId を使って GAS 側の保存結果を JSONP で確認する。
+  const resp = await uploadViaGasFormPost({
+    base64, fileName, folderName, mime, metaStr,
+    timeoutMs: FORM_POST_TIMEOUT_MS,
+    onLog: log,
+  });
+  log(`POST送信応答: ${JSON.stringify(resp)}`);
+  if (!resp || !resp.ok) throw new Error(resp?.error || "POST送信失敗");
+  return resp;
 }
 
 /* ============================================================ iframe form POST */
 
-function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, timeoutMs }) {
+function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, timeoutMs, onLog }) {
   return new Promise((resolve, reject) => {
+    const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
     const gasUrl = getGasWebAppUrl();
     const gasProblem = validateGasUrl(gasUrl);
     if (gasProblem) { reject(new Error(gasProblem)); return; }
@@ -151,6 +148,8 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
     const requestId = "fp_" + (++_seq) + "_" + Date.now().toString(36);
     const iframeName = "gas_upload_iframe_" + requestId;
     let timer = null;
+    let pollTimer = null;
+    let settled = false;
 
     const iframe = document.createElement("iframe");
     iframe.name = iframeName;
@@ -184,25 +183,59 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
+      if (pollTimer) clearTimeout(pollTimer);
       window.removeEventListener("message", onMessage);
       if (form.parentNode) form.parentNode.removeChild(form);
       if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
     };
 
+    function finishOk(resp) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(resp);
+    }
+
+    function finishErr(err) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+
     function onMessage(event) {
       const data = event.data || {};
       if (!data || data.kitagataGasResponse !== true) return;
       if (data.requestId !== requestId) return;
-      cleanup();
       const resp = data.response || {};
-      if (resp && resp.ok) resolve(resp);
-      else reject(new Error(resp.error || "GAS POST 応答がエラーでした"));
+      if (resp && resp.ok) finishOk(resp);
+      else finishErr(new Error(resp.error || "GAS POST 応答がエラーでした"));
+    }
+
+    async function pollStatus() {
+      if (settled) return;
+      try {
+        const status = await callGasJsonp({ action: "upload_status", requestId }, 15000);
+        if (settled) return;
+        if (status && status.ok && status.done) {
+          const resp = status.response || {};
+          if (resp && resp.ok) finishOk(resp);
+          else finishErr(new Error(resp.error || "GAS POST 保存結果がエラーでした"));
+          return;
+        }
+        if (status && status.ok && status.done === false) {
+          log(`POST保存確認中: ${requestId}`);
+        }
+      } catch (e) {
+        // POST中は一時的に status が取れないことがあるため、タイムアウトまでは再試行する。
+        log(`POST保存確認待ち: ${e.message || e}`);
+      }
+      if (!settled) pollTimer = setTimeout(pollStatus, 1500);
     }
 
     window.addEventListener("message", onMessage);
     timer = setTimeout(() => {
-      cleanup();
-      reject(new Error("POST送信タイムアウト: GAS側Code.gsがv3.1.0以降でない、またはWebアプリを新バージョンで再デプロイしていない可能性があります。"));
+      finishErr(new Error("POST送信結果の確認がタイムアウトしました。Driveに写真が作成されている場合は、GAS側Code.gsをv3.2.0以降に貼り替えて、Webアプリを新バージョンで再デプロイしてください。"));
     }, timeoutMs || 120000);
 
     document.body.appendChild(iframe);
@@ -210,9 +243,9 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
 
     try {
       form.submit();
+      pollTimer = setTimeout(pollStatus, 1500);
     } catch (e) {
-      cleanup();
-      reject(e);
+      finishErr(e);
     }
   });
 }
