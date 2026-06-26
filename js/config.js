@@ -22,7 +22,7 @@ export const GAS_TIMEOUT_MS = 60000;
 // Sheets 連携(現状維持)
 // ============================================================
 export const SHEETS_API_KEY = "AIzaSyA1EPCXjMfkhso-kiu7SHRDmdts027GpQs";
-export const SHEETS_ID = "";  // 北方カメラ設定シートのID
+export const SHEETS_ID = "1uPhgQOJqhFF4KDsB-VUPdU-83P552rCT8zyCCxHfZD0";  // 北方カメラ設定シートのID
 
 export const SHEET_TAB_PROJECT  = "工事情報";
 export const SHEET_TAB_BUILDING = "棟と部屋";
