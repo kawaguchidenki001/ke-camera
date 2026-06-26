@@ -86,7 +86,7 @@ export async function getAllPhotos() {
 }
 
 export async function getPendingPhotos() {
-  // v1.6.10: スマホで送信途中に止まった写真を再送対象へ戻せるよう、古い uploading も表示対象にする
+  // v1.6.11: スマホで送信途中に止まった写真を再送対象へ戻せるよう、古い uploading も表示対象にする
   const all = await getAllPhotos();
   const staleMs = 30 * 1000;
   const now = Date.now();

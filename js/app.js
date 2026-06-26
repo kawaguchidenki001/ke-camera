@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.10 - 設定ボタン非表示版
+// 北方カメラ v1.6.11 - 撮影後バックグラウンド送信版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.10";
+} from "./config.js?v=1.6.11";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.10";
+} from "./storage.js?v=1.6.11";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.10";
-import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.10";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.10";
-import { readAllConfig } from "./sheets.js?v=1.6.10";
+} from "./ui.js?v=1.6.11";
+import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.11";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.11";
+import { readAllConfig } from "./sheets.js?v=1.6.11";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.10";
+} from "./gas-uploader.js?v=1.6.11";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.10";
+} from "./photoStore.js?v=1.6.11";
 
 const { $, $$ } = dom;
 
@@ -41,10 +41,12 @@ const { $, $$ } = dom;
 
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
-const FAST_PHOTO_MAX_LONG_SIDE = 1280;  // v1.6.10: 送信高速化
-const BATCH_PAUSE_MS_MOBILE = 2500;     // v1.6.10: スマホ連続送信の安定化
+const FAST_PHOTO_MAX_LONG_SIDE = 1280;  // v1.6.11: 送信高速化
+const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
-const AFTER_EACH_UPLOAD_PAUSE_MS_MOBILE = 2500;
+const AFTER_EACH_UPLOAD_PAUSE_MS_MOBILE = 1800;
+const BACKGROUND_UPLOAD_PAUSE_MS_MOBILE = 1800;
+const BACKGROUND_UPLOAD_PAUSE_MS_PC = 250;
 
 /* ============================================================ デバッグログ */
 
@@ -81,7 +83,9 @@ const state = {
   cameraOn:      false,
   cameraTrack:   null,
 
-  uploading:     false,
+  uploading:     false,   // 送信中(バックグラウンド/未送信一括)
+  capturing:     false,   // 撮影画像作成・端末保存中だけ true
+  backgroundUploading: false,
   cancelBatch:   false,
   gasReady:      false,
 };
@@ -342,7 +346,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.10");
+  url.searchParams.set("v", "1.6.11");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -687,19 +691,24 @@ async function onShoot() {
     if (!state.photographer) return;
   }
   if (!state.cameraOn) { toastError("カメラが起動していません"); return; }
-  if (state.uploading) { toastInfo("処理中です…"); return; }
+  if (state.capturing) { toastInfo("写真を端末に保存中です…"); return; }
 
+  // バックグラウンド送信中でも次の撮影は許可する。
+  // ただし未送信が上限に達している時は端末容量保護のため止める。
   if (await isAtLimit(PENDING_LIMIT)) {
     toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。`);
     return;
   }
 
-  state.uploading = true;
+  state.capturing = true;
   const btn = $("#btnShoot");
   btn.disabled = true;
   const origText = btn.textContent;
-  btn.textContent = "処理中…";
-  dbg("=== 撮影開始 ===");
+  btn.textContent = "保存中…";
+  dbg("=== 撮影開始(端末保存優先) ===");
+
+  let savedIds = [];
+  let fileNameMain = "";
 
   try {
     const video = $("#videoEl");
@@ -738,48 +747,41 @@ async function onShoot() {
     const roomKey = makeRoomKey(board.building, board.room);
     board.seq = nextSeq(roomKey, board.date);
 
-    const fileNameMain = buildFilename(FILENAME_TEMPLATE, board);
-    const fileNameNB   = fileNameMain.replace(/\.jpe?g$/i, "_nb.jpg");
+    fileNameMain = buildFilename(FILENAME_TEMPLATE, board);
+    const fileNameNB = fileNameMain.replace(/\.jpe?g$/i, "_nb.jpg");
 
-    // IndexedDB に2枚保存
+    // まず端末内 IndexedDB に保存する。ここまで終われば撮影ボタンを戻せる。
     const photoIdMain = await addPhoto({
       blob: result.withBoard.blob, board, fileName: fileNameMain, roomKey,
     });
-    let photoIdNB = null;
+    savedIds.push(photoIdMain);
+
     if (result.noBoard) {
-      photoIdNB = await addPhoto({
+      const photoIdNB = await addPhoto({
         blob: result.noBoard.blob,
         board: { ...board, isNoBoard: true },
         fileName: fileNameNB,
         roomKey,
       });
+      savedIds.push(photoIdNB);
     }
 
-    // GAS に送信
-    try {
-      btn.textContent = "送信中… (1/2)";
-      await uploadOne(photoIdMain);
-      if (photoIdNB) {
-        // スマホは連続POST直後に2枚目が固まることがあるため、少し待ってから黒板なしを送る
-        if (isMobileBrowser()) await sleep(AFTER_EACH_UPLOAD_PAUSE_MS_MOBILE);
-        btn.textContent = "送信中… (2/2)";
-        await uploadOne(photoIdNB);
-      }
-      toastSuccess(`Drive に保存 (黒板あり+なし 2枚): ${fileNameMain}`);
-    } catch (e) {
-      toastError(`送信失敗(未送信として保持): ${e.message}`);
-    }
+    dbg(`端末保存完了: ${savedIds.length}枚 ${fileNameMain}`);
+    toastSuccess(`端末に保存。Drive送信は裏で実行中: ${fileNameMain}`);
 
-    // 次の連番ヒント更新
+    // 次の連番ヒントと未送信枚数をすぐ更新
     refreshChips();
+    await refreshOutboxCard();
+
+    // 送信は待たずに裏で開始する。撮影ボタンは finally ですぐ復帰する。
+    setTimeout(() => startBackgroundUploadQueue(), 0);
   } catch (e) {
     console.error(e);
     toastError("撮影失敗: " + e.message);
   } finally {
-    state.uploading = false;
+    state.capturing = false;
     btn.disabled = false;
     btn.textContent = origText;
-    refreshOutboxCard();
   }
 }
 
@@ -856,10 +858,69 @@ async function uploadOne(photoId) {
   }
 }
 
+
+/* ============================================================ Background Upload */
+
+async function startBackgroundUploadQueue() {
+  if (state.uploading) return;
+  state.uploading = true;
+  state.backgroundUploading = true;
+  dbg("バックグラウンド送信開始");
+
+  const pauseMs = isMobileBrowser() ? BACKGROUND_UPLOAD_PAUSE_MS_MOBILE : BACKGROUND_UPLOAD_PAUSE_MS_PC;
+  let ok = 0;
+  let ng = 0;
+  let announcedError = false;
+
+  try {
+    while (true) {
+      await resetStaleUploading(30 * 1000);
+      const list = (await getPendingPhotos()).filter(p => p.status !== "failed");
+      if (list.length === 0) break;
+
+      const p = list[0];
+      try {
+        dbg(`BG送信 ${p.board.building}-${p.board.room} #${pad3(p.board.seq)}${p.board.isNoBoard ? " 黒板なし" : " 黒板あり"}`);
+        await uploadOne(p.id);
+        ok++;
+        await refreshOutboxCard();
+      } catch (e) {
+        ng++;
+        dbg(`BG送信エラー: ${e.message || e}`);
+        if (!announcedError) {
+          toastError(`Drive送信失敗。未送信に残しました: ${e.message || e}`);
+          announcedError = true;
+        }
+      }
+
+      await sleep(pauseMs);
+    }
+  } finally {
+    state.uploading = false;
+    state.backgroundUploading = false;
+    await refreshOutboxCard();
+
+    // ちょうど送信終了の瞬間に新しい写真が端末保存された場合の取りこぼし対策
+    try {
+      const remaining = (await getPendingPhotos()).filter(p => p.status !== "failed");
+      if (remaining.length > 0) {
+        setTimeout(() => startBackgroundUploadQueue(), 250);
+      }
+    } catch (e) {}
+
+    if (ok > 0 && ng === 0) {
+      toastSuccess(`Drive送信完了: ${ok}枚`);
+    } else if (ok > 0 && ng > 0) {
+      toastInfo(`Drive送信: 成功${ok}枚 / 失敗${ng}枚`);
+    }
+    dbg(`バックグラウンド送信終了: 成功${ok} 失敗${ng}`);
+  }
+}
+
 /* ============================================================ Outbox */
 
 async function openOutbox() {
-  // v1.6.10: スマホの連続送信中にカメラがメモリを使い続けないよう停止
+  // v1.6.11: スマホの連続送信中にカメラがメモリを使い続けないよう停止
   stopCameraFlow();
   showScreen("outbox");
   await resetStaleUploading(30 * 1000);
@@ -924,13 +985,13 @@ async function renderOutbox() {
 }
 
 async function uploadAllPending() {
-  if (state.uploading) { toastInfo("送信処理中です…"); return; }
+  if (state.uploading) { toastInfo("現在、裏で送信中です。少し待ってから開いてください"); return; }
 
   await resetStaleUploading(30 * 1000);
   const list = await getPendingPhotos();
   if (list.length === 0) { toastInfo("未送信なし"); return; }
 
-  // v1.6.10: スマホではカメラを止めてから送信すると、1枚目以降で止まりにくい
+  // v1.6.11: スマホではカメラを止めてから送信すると、1枚目以降で止まりにくい
   stopCameraFlow();
   state.uploading = true;
 
