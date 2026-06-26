@@ -1,8 +1,8 @@
 // js/gas-uploader.js
 // GAS Web App と通信(すべて JSONP GET。応答を必ず読む)
-// v1.6.3: 端末側で GAS URL / トークンを上書き保存できるようにした診断強化版
+// v1.6.4: 端末側で GAS URL / トークンを上書き保存できるようにした診断強化版
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.3";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.4";
 
 let _seq = 0;
 const CHUNK_SIZE = 7000;  // Base64 を分割するサイズ(URL 長の安全圏)
