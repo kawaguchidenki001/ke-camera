@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.4 - 直接カメラ画面、固定黒板、チップで選択
+// 北方カメラ v1.6.5 - 直接カメラ画面、固定黒板、チップで選択
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.4";
+} from "./config.js?v=1.6.5";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.4";
+} from "./storage.js?v=1.6.5";
 import {
   showScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.4";
-import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.4";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.4";
-import { readAllConfig } from "./sheets.js?v=1.6.4";
+} from "./ui.js?v=1.6.5";
+import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.5";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.5";
+import { readAllConfig } from "./sheets.js?v=1.6.5";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.4";
+} from "./gas-uploader.js?v=1.6.5";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.4";
+} from "./photoStore.js?v=1.6.5";
 
 const { $, $$ } = dom;
 
@@ -336,7 +336,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.4");
+  url.searchParams.set("v", "1.6.5");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }

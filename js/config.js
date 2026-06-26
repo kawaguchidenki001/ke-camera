@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.6.4: GAS Web App 方式)
+// 北方カメラ - 設定値(v1.6.5: GAS Web App 方式)
 
-export const APP_VERSION = "1.6.4";
+export const APP_VERSION = "1.6.5";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================

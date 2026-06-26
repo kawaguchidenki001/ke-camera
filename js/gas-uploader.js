@@ -1,11 +1,12 @@
 // js/gas-uploader.js
-// GAS Web App と通信(すべて JSONP GET。応答を必ず読む)
-// v1.6.4: 端末側で GAS URL / トークンを上書き保存できるようにした診断強化版
+// GAS Web App と通信
+// v1.6.5: 撮影画像は iframe form POST で送信(URL長制限対策)。ping は JSONP GET。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.4";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.5";
 
 let _seq = 0;
-const CHUNK_SIZE = 7000;  // Base64 を分割するサイズ(URL 長の安全圏)
+const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
+const FORM_POST_TIMEOUT_MS = Math.max(120000, (GAS_TIMEOUT_MS || 60000) * 2);
 
 const LS_GAS_URL = "kitagata.gasWebAppUrl";
 const LS_TOKEN   = "kitagata.sharedToken";
@@ -104,7 +105,7 @@ export function pingGas() {
   return callGasJsonp({ action: "ping" }, 15000);
 }
 
-/* ============================================================ upload(分割GET → Drive一時ファイル追記方式) */
+/* ============================================================ upload */
 
 export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta, onLog }) {
   const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
@@ -119,14 +120,113 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   const mime    = mimeType || blob.type || "image/jpeg";
   const metaStr = meta ? JSON.stringify(meta) : "";
 
+  log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
+  log(`送信開始: ${fileName} (${Math.round(base64.length/1024)}KB)`);
+
+  // v1.6.5: 長いURLで失敗するため、画像本体は GET ではなく hidden iframe + form POST で送る。
+  try {
+    const resp = await uploadViaGasFormPost({
+      base64, fileName, folderName, mime, metaStr,
+      timeoutMs: FORM_POST_TIMEOUT_MS,
+    });
+    log(`POST送信応答: ${JSON.stringify(resp)}`);
+    if (!resp || !resp.ok) throw new Error(resp?.error || "POST送信失敗");
+    return resp;
+  } catch (e) {
+    log(`POST送信失敗: ${e.message}`);
+    // GAS側Code.gsがまだ旧版でも動く可能性があるように、短いチャンクのJSONPへフォールバック。
+    log("短い分割GETで再試行します…");
+    return uploadViaGasJsonpChunks({ base64, fileName, folderName, mime, metaStr, onLog });
+  }
+}
+
+/* ============================================================ iframe form POST */
+
+function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const gasUrl = getGasWebAppUrl();
+    const gasProblem = validateGasUrl(gasUrl);
+    if (gasProblem) { reject(new Error(gasProblem)); return; }
+
+    const requestId = "fp_" + (++_seq) + "_" + Date.now().toString(36);
+    const iframeName = "gas_upload_iframe_" + requestId;
+    let timer = null;
+
+    const iframe = document.createElement("iframe");
+    iframe.name = iframeName;
+    iframe.style.display = "none";
+    iframe.setAttribute("aria-hidden", "true");
+
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = gasUrl;
+    form.target = iframeName;
+    form.enctype = "application/x-www-form-urlencoded";
+    form.acceptCharset = "UTF-8";
+    form.style.display = "none";
+
+    function add(name, value) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value == null ? "" : String(value);
+      form.appendChild(input);
+    }
+
+    add("action", "upload_form");
+    add("secret", getSharedToken());
+    add("requestId", requestId);
+    add("folder", folderName);
+    add("name", fileName);
+    add("mime", mime);
+    add("meta", metaStr);
+    add("data", base64);
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      if (form.parentNode) form.parentNode.removeChild(form);
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+
+    function onMessage(event) {
+      const data = event.data || {};
+      if (!data || data.kitagataGasResponse !== true) return;
+      if (data.requestId !== requestId) return;
+      cleanup();
+      const resp = data.response || {};
+      if (resp && resp.ok) resolve(resp);
+      else reject(new Error(resp.error || "GAS POST 応答がエラーでした"));
+    }
+
+    window.addEventListener("message", onMessage);
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("POST送信タイムアウト: GAS側Code.gsがv3.1.0以降でない、またはWebアプリを新バージョンで再デプロイしていない可能性があります。"));
+    }, timeoutMs || 120000);
+
+    document.body.appendChild(iframe);
+    document.body.appendChild(form);
+
+    try {
+      form.submit();
+    } catch (e) {
+      cleanup();
+      reject(e);
+    }
+  });
+}
+
+/* ============================================================ JSONP chunk fallback */
+
+async function uploadViaGasJsonpChunks({ base64, fileName, folderName, mime, metaStr, onLog }) {
+  const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
   const uploadId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const total = Math.ceil(base64.length / CHUNK_SIZE);
   if (total === 0) throw new Error("画像データが空です");
 
-  log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
-  log(`送信開始: ${fileName} (${total}分割, ${Math.round(base64.length/1024)}KB)`);
+  log(`分割GET送信: ${fileName} (${total}分割, ${Math.round(base64.length/1024)}KB)`);
 
-  // ① 開始: 一時ファイルを作る
   const startResp = await callGasJsonp({
     action: "up_start",
     uid:    uploadId,
@@ -141,7 +241,6 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
     throw new Error("開始失敗: " + (startResp?.error || "不明"));
   }
 
-  // ② 各チャンクを順番に追記
   for (let i = 0; i < total; i++) {
     const chunk = base64.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
     const resp = await callGasJsonp({
@@ -153,14 +252,10 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
     if (!resp || !resp.ok) {
       throw new Error(`チャンク ${i + 1}/${total} 失敗: ${resp?.error || "不明"}`);
     }
-    log(`チャンク ${i + 1}/${total} OK`);
+    if (i === 0 || i === total - 1 || (i + 1) % 20 === 0) log(`チャンク ${i + 1}/${total} OK`);
   }
 
-  // ③ 完了: 結合して Drive に保存
-  const finResp = await callGasJsonp({
-    action: "up_finish",
-    uid:    uploadId,
-  }, GAS_TIMEOUT_MS);
+  const finResp = await callGasJsonp({ action: "up_finish", uid: uploadId }, GAS_TIMEOUT_MS);
   log(`完了応答: ${JSON.stringify(finResp)}`);
   if (!finResp || !finResp.ok) {
     throw new Error("結合失敗: " + (finResp?.error || "不明"));
@@ -199,7 +294,7 @@ function callGasJsonp(params, timeoutMs) {
     window[cbName] = (resp) => { cleanup(); resolve(resp); };
     script.onerror = () => {
       cleanup();
-      reject(new Error("通信失敗: GASのWebアプリURLが無効、/execではない、またはデプロイのアクセス権限が『全員』になっていません。メニューの『GAS URL設定』で最新の /exec URL を設定してください。"));
+      reject(new Error("通信失敗: GASへのGET通信が失敗しました。GAS URL、アクセス権限、またはURL長制限が原因の可能性があります。"));
     };
     timer = setTimeout(() => { cleanup(); reject(new Error("タイムアウト: GASが応答していません。GASを再デプロイし、/exec URLを確認してください。")); }, timeoutMs || 30000);
 

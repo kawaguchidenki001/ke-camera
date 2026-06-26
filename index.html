@@ -12,13 +12,13 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.6.4" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.4" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.4" />
-  <link rel="stylesheet" href="./style.css?v=1.6.4" />
+  <link rel="manifest" href="./manifest.json?v=1.6.5" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.5" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.5" />
+  <link rel="stylesheet" href="./style.css?v=1.6.5" />
 
   <script>
-  window.__KITAGATA_BUILD__ = "1.6.4";
+  window.__KITAGATA_BUILD__ = "1.6.5";
   window.__KITAGATA_FALLBACK_CONFIG__ = {
     GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
     SHARED_TOKEN: "kitagata-photo-2026"
@@ -40,7 +40,7 @@
     } finally {
       const url = new URL(location.href);
       url.searchParams.delete("reset");
-      url.searchParams.set("v", "1.6.4");
+      url.searchParams.set("v", "1.6.5");
       location.replace(url.toString());
     }
   })();
@@ -246,7 +246,7 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js?v=1.6.4"></script>
+<script type="module" src="./js/app.js?v=1.6.5"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -256,7 +256,7 @@ if ('serviceWorker' in navigator) {
       refreshing = true;
       location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=1.6.4', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js?v=1.6.5', { updateViaCache: 'none' })
       .then(reg => {
         reg.update();
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
