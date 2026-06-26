@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.2 - 直接カメラ画面、固定黒板、チップで選択
+// 北方カメラ v1.6.3 - 直接カメラ画面、固定黒板、チップで選択
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.2";
+} from "./config.js?v=1.6.3";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,21 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.2";
+} from "./storage.js?v=1.6.3";
 import {
   showScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.2";
-import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.2";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.2";
-import { readAllConfig } from "./sheets.js?v=1.6.2";
-import { uploadViaGas, pingGas } from "./gas-uploader.js?v=1.6.2";
+} from "./ui.js?v=1.6.3";
+import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.3";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.3";
+import { readAllConfig } from "./sheets.js?v=1.6.3";
+import {
+  uploadViaGas, pingGas,
+  getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
+} from "./gas-uploader.js?v=1.6.3";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.2";
+} from "./photoStore.js?v=1.6.3";
 
 const { $, $$ } = dom;
 
@@ -107,6 +110,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 /* ============================================================ GAS 疎通 */
 
 async function testGasConnection() {
+  const st = getGasConfigStatus();
+  dbg(`GAS設定: ${st.maskedUrl}${st.hasUrlOverride ? " (端末設定)" : " (config.js)"}`);
+  if (st.problem) {
+    dbg(`GAS設定エラー: ${st.problem}`);
+    state.gasReady = false;
+    setAuthIndicator(false);
+    return;
+  }
   try {
     const r = await pingGas();
     if (r && r.ok) {
@@ -258,6 +269,8 @@ function initEvents() {
   $("#menuPhotographer").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
   $("#menuReloadConfig").addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
   $("#menuTestGas").addEventListener("click", async () => { closeMenu(); await onTestGas(); });
+  const gasSetBtn = $("#menuSetGasUrl");
+  if (gasSetBtn) gasSetBtn.addEventListener("click", async () => { closeMenu(); await onSetGasUrl(); });
   $("#menuOutbox").addEventListener("click", () => { closeMenu(); openOutbox(); });
   const updBtn = $("#menuForceUpdate");
   if (updBtn) updBtn.addEventListener("click", async () => { closeMenu(); await forceAppUpdate(); });
@@ -314,12 +327,45 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.2");
+  url.searchParams.set("v", "1.6.3");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
 
 /* ============================================================ GAS テスト */
+
+async function onSetGasUrl() {
+  const current = getGasWebAppUrl();
+  const url = window.prompt(
+    "GASのウェブアプリURLを貼り付けてください。\n必ず https://script.google.com/macros/s/.../exec の形式です。\nscript.googleusercontent.com や /dev は使えません。",
+    current || "https://script.google.com/macros/s/...../exec"
+  );
+  if (url === null) return;
+  const trimmed = String(url || "").trim();
+  if (!trimmed) {
+    toastError("GAS URL が空です");
+    return;
+  }
+
+  const token = window.prompt(
+    "GAS側の SHARED_TOKEN を入力してください。通常はこのままでOKです。",
+    getSharedToken() || "kitagata-photo-2026"
+  );
+  if (token === null) return;
+
+  setGasWebAppUrl(trimmed);
+  setSharedToken(String(token || "").trim());
+
+  const st = getGasConfigStatus();
+  dbg(`GAS URLを端末に保存: ${st.maskedUrl}`);
+  if (st.problem) {
+    toastError(st.problem);
+    setAuthIndicator(false);
+    return;
+  }
+
+  await onTestGas();
+}
 
 async function onAuthDotClick() {
   if (state.gasReady) toastInfo("GAS 接続 OK");
@@ -327,9 +373,20 @@ async function onAuthDotClick() {
 }
 
 async function onTestGas() {
+  const st = getGasConfigStatus();
+  dbg(`GAS接続テスト: ${st.maskedUrl}${st.hasUrlOverride ? " (端末設定)" : " (config.js)"}`);
+  if (st.problem) {
+    state.gasReady = false;
+    setAuthIndicator(false);
+    dbg(`GAS設定エラー: ${st.problem}`);
+    toastError(st.problem);
+    return;
+  }
+
   toastInfo("GAS に接続中…");
   try {
     const r = await pingGas();
+    dbg(`GAS応答: ${JSON.stringify(r)}`);
     if (r && r.ok) {
       state.gasReady = true;
       setAuthIndicator(true);
@@ -342,6 +399,7 @@ async function onTestGas() {
   } catch (e) {
     state.gasReady = false;
     setAuthIndicator(false);
+    dbg(`GAS接続失敗: ${e.message}`);
     toastError("接続失敗: " + e.message);
   }
 }

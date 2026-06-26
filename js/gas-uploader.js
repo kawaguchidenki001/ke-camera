@@ -1,12 +1,14 @@
 // js/gas-uploader.js
 // GAS Web App と通信(すべて JSONP GET。応答を必ず読む)
-//   ・写真は分割して GET 送信、GAS 側で Drive 一時ファイルに追記して結合
-//   ・各ステップでログを出せる(onLog コールバック)
+// v1.6.3: 端末側で GAS URL / トークンを上書き保存できるようにした診断強化版
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.2";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.3";
 
 let _seq = 0;
 const CHUNK_SIZE = 7000;  // Base64 を分割するサイズ(URL 長の安全圏)
+
+const LS_GAS_URL = "kitagata.gasWebAppUrl";
+const LS_TOKEN   = "kitagata.sharedToken";
 
 // キャッシュに古い config.js が残っていても送信先を失わないための保険
 const FALLBACK_GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec";
@@ -16,12 +18,84 @@ function getFallbackConfig() {
   try { return window.__KITAGATA_FALLBACK_CONFIG__ || {}; } catch (e) { return {}; }
 }
 
-function getGasWebAppUrl() {
-  return String(CONFIG_GAS_WEB_APP_URL || getFallbackConfig().GAS_WEB_APP_URL || FALLBACK_GAS_WEB_APP_URL || "").trim();
+function readLocalStorage(key) {
+  try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
 }
 
-function getSharedToken() {
-  return String(CONFIG_SHARED_TOKEN || getFallbackConfig().SHARED_TOKEN || FALLBACK_SHARED_TOKEN || "").trim();
+function writeLocalStorage(key, value) {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch (e) {}
+}
+
+export function getGasWebAppUrl() {
+  return normalizeUrl(readLocalStorage(LS_GAS_URL) || CONFIG_GAS_WEB_APP_URL || getFallbackConfig().GAS_WEB_APP_URL || FALLBACK_GAS_WEB_APP_URL || "");
+}
+
+export function getConfiguredGasWebAppUrl() {
+  return normalizeUrl(CONFIG_GAS_WEB_APP_URL || getFallbackConfig().GAS_WEB_APP_URL || FALLBACK_GAS_WEB_APP_URL || "");
+}
+
+export function setGasWebAppUrl(url) {
+  writeLocalStorage(LS_GAS_URL, normalizeUrl(url));
+}
+
+export function clearGasWebAppUrlOverride() {
+  writeLocalStorage(LS_GAS_URL, "");
+}
+
+export function hasGasWebAppUrlOverride() {
+  return !!readLocalStorage(LS_GAS_URL);
+}
+
+export function getSharedToken() {
+  return String(readLocalStorage(LS_TOKEN) || CONFIG_SHARED_TOKEN || getFallbackConfig().SHARED_TOKEN || FALLBACK_SHARED_TOKEN || "").trim();
+}
+
+export function setSharedToken(token) {
+  writeLocalStorage(LS_TOKEN, String(token || "").trim());
+}
+
+export function clearSharedTokenOverride() {
+  writeLocalStorage(LS_TOKEN, "");
+}
+
+export function getGasConfigStatus() {
+  const url = getGasWebAppUrl();
+  return {
+    url,
+    maskedUrl: maskGasUrl(url),
+    hasUrlOverride: hasGasWebAppUrlOverride(),
+    tokenSet: !!getSharedToken(),
+    problem: validateGasUrl(url),
+  };
+}
+
+function normalizeUrl(url) {
+  return String(url || "").trim().replace(/[?#].*$/, "");
+}
+
+function validateGasUrl(url) {
+  if (!url) return "GAS_WEB_APP_URL が未設定";
+  if (url.includes("script.googleusercontent.com")) {
+    return "GAS URL が script.googleusercontent.com になっています。これは実行後の転送先です。Apps Script の『ウェブアプリURL』に表示される https://script.google.com/macros/s/.../exec を設定してください。";
+  }
+  if (url.endsWith("/dev")) {
+    return "GAS URL が /dev です。/dev は編集者用のテストURLです。デプロイ済みの /exec URL を設定してください。";
+  }
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) {
+    return "GAS URL の形式が違います。https://script.google.com/macros/s/.../exec の形式を設定してください。";
+  }
+  return "";
+}
+
+function maskGasUrl(url) {
+  const s = String(url || "");
+  const m = s.match(/^(https:\/\/script\.google\.com\/macros\/s\/)([^/]+)(\/exec)$/);
+  if (!m) return s || "未設定";
+  const id = m[2];
+  return `${m[1]}${id.slice(0, 10)}...${id.slice(-8)}${m[3]}`;
 }
 
 /* ============================================================ ping */
@@ -35,7 +109,8 @@ export function pingGas() {
 export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta, onLog }) {
   const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
 
-  if (!getGasWebAppUrl()) throw new Error("GAS_WEB_APP_URL が未設定");
+  const gasProblem = validateGasUrl(getGasWebAppUrl());
+  if (gasProblem) throw new Error(gasProblem);
   if (!blob)            throw new Error("blob is required");
   if (!fileName)        throw new Error("fileName is required");
   if (!folderName)      throw new Error("folderName is required");
@@ -48,6 +123,7 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   const total = Math.ceil(base64.length / CHUNK_SIZE);
   if (total === 0) throw new Error("画像データが空です");
 
+  log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
   log(`送信開始: ${fileName} (${total}分割, ${Math.round(base64.length/1024)}KB)`);
 
   // ① 開始: 一時ファイルを作る
@@ -98,7 +174,8 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
 function callGasJsonp(params, timeoutMs) {
   return new Promise((resolve, reject) => {
     const gasUrl = getGasWebAppUrl();
-    if (!gasUrl) { reject(new Error("GAS_WEB_APP_URL が未設定")); return; }
+    const gasProblem = validateGasUrl(gasUrl);
+    if (gasProblem) { reject(new Error(gasProblem)); return; }
 
     const cbName = "_gasCb_" + (++_seq) + "_" + Date.now().toString(36);
     let timer = null;
@@ -120,8 +197,11 @@ function callGasJsonp(params, timeoutMs) {
     };
 
     window[cbName] = (resp) => { cleanup(); resolve(resp); };
-    script.onerror = () => { cleanup(); reject(new Error("通信失敗(ネットワーク or URL不正)")); };
-    timer = setTimeout(() => { cleanup(); reject(new Error("タイムアウト")); }, timeoutMs || 30000);
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("通信失敗: GASのWebアプリURLが無効、/execではない、またはデプロイのアクセス権限が『全員』になっていません。メニューの『GAS URL設定』で最新の /exec URL を設定してください。"));
+    };
+    timer = setTimeout(() => { cleanup(); reject(new Error("タイムアウト: GASが応答していません。GASを再デプロイし、/exec URLを確認してください。")); }, timeoutMs || 30000);
 
     document.body.appendChild(script);
   });
