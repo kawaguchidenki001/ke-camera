@@ -580,10 +580,10 @@ async function onShoot() {
     const result = await composePhoto(source, {
       boardRect:   FIXED_BOARD_RECT,
       labels, values,
-      jpegQuality: 0.88,
+      jpegQuality: 0.82,
       cropToRatio: true,
       alsoNoBoard: ALWAYS_NO_BOARD,
-      maxLongSide: 1920,
+      maxLongSide: 1600,
     });
 
     shutterSound();
@@ -620,8 +620,12 @@ async function onShoot() {
 
     // GAS に送信
     try {
+      btn.textContent = "送信中… (1/2)";
       await uploadOne(photoIdMain);
-      if (photoIdNB) await uploadOne(photoIdNB);
+      if (photoIdNB) {
+        btn.textContent = "送信中… (2/2)";
+        await uploadOne(photoIdNB);
+      }
       toastSuccess(`Drive に保存 (黒板あり+なし 2枚): ${fileNameMain}`);
     } catch (e) {
       toastError(`送信失敗(未送信として保持): ${e.message}`);

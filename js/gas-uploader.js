@@ -1,19 +1,20 @@
 // js/gas-uploader.js
-// GAS Web App と通信
-//   ・写真送信: text/plain + JSON (GenCan と同じ方式)
-//   ・疎通確認: JSONP GET
+// GAS Web App と通信(すべて JSONP GET、応答が読める方式)
+//   ・ping:   疎通確認
+//   ・upload: 写真を 8000 文字ずつ分割して送信 → GAS 側で結合
 
 import { GAS_WEB_APP_URL, SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js";
 
 let _seq = 0;
+const CHUNK_SIZE = 8000;  // Base64 を分割するサイズ(URL 長制限の安全圏)
 
-/* ============================================================ ping (JSONP GET) */
+/* ============================================================ ping */
 
 export function pingGas() {
-  return callGasJsonp({ action: "ping" });
+  return callGasJsonp({ action: "ping" }, 15000);
 }
 
-/* ============================================================ upload (text/plain POST, GenCan方式) */
+/* ============================================================ upload(分割GET送信) */
 
 export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta }) {
   if (!GAS_WEB_APP_URL) throw new Error("GAS_WEB_APP_URL が未設定");
@@ -23,44 +24,53 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta 
 
   const base64 = await blobToBase64NoPrefix(blob);
   const mime   = mimeType || blob.type || "image/jpeg";
+  const metaStr = meta ? JSON.stringify(meta) : "";
 
-  const body = JSON.stringify({
-    secret: SHARED_TOKEN,
-    action: "upload",
-    folder: folderName,
-    name:   fileName,
-    mime,
-    data:   base64,
-    meta:   meta ? JSON.stringify(meta) : "",
-  });
+  // アップロードセッション ID(この写真を一意に識別)
+  const uploadId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-  const ctrl  = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), GAS_TIMEOUT_MS);
+  // チャンクに分割
+  const total = Math.ceil(base64.length / CHUNK_SIZE);
+  if (total === 0) throw new Error("画像データが空です");
 
-  try {
-    await fetch(GAS_WEB_APP_URL, {
-      method:  "POST",
-      mode:    "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body,
-      signal: ctrl.signal,
-    });
-  } catch (e) {
-    if (e.name === "AbortError") {
-      throw new Error(`GAS タイムアウト(${Math.round(GAS_TIMEOUT_MS / 1000)}秒)`);
+  // 各チャンクを順番に送信
+  for (let i = 0; i < total; i++) {
+    const chunk = base64.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    const isFirst = (i === 0);
+    const isLast  = (i === total - 1);
+
+    const params = {
+      action: "upchunk",
+      uid:    uploadId,
+      idx:    String(i),
+      total:  String(total),
+      chunk:  chunk,
+    };
+    // 最初のチャンクにメタ情報を載せる
+    if (isFirst) {
+      params.folder = folderName;
+      params.name   = fileName;
+      params.mime   = mime;
+      params.meta   = metaStr;
     }
-    throw new Error("GAS 通信失敗: " + (e.message || e));
-  } finally {
-    clearTimeout(timer);
+
+    const resp = await callGasJsonp(params, GAS_TIMEOUT_MS);
+    if (!resp || !resp.ok) {
+      throw new Error(resp?.error || `チャンク送信失敗 (${i + 1}/${total})`);
+    }
+
+    // 最後のチャンクの応答に fileId が含まれる
+    if (isLast) {
+      return resp;
+    }
   }
 
-  // no-cors のためレスポンスは読めない → 送信完了で成功とみなす
-  return { ok: true, mode: "no-cors" };
+  return { ok: true };
 }
 
-/* ============================================================ JSONP GET (ping用) */
+/* ============================================================ JSONP GET */
 
-function callGasJsonp(params) {
+function callGasJsonp(params, timeoutMs) {
   return new Promise((resolve, reject) => {
     if (!GAS_WEB_APP_URL) {
       reject(new Error("GAS_WEB_APP_URL が未設定"));
@@ -87,8 +97,8 @@ function callGasJsonp(params) {
     };
 
     window[cbName] = (resp) => { cleanup(); resolve(resp); };
-    script.onerror = () => { cleanup(); reject(new Error("GAS 通信失敗")); };
-    timer = setTimeout(() => { cleanup(); reject(new Error("GAS タイムアウト")); }, 15000);
+    script.onerror = () => { cleanup(); reject(new Error("GAS 通信失敗(ネットワーク or URL 不正)")); };
+    timer = setTimeout(() => { cleanup(); reject(new Error("GAS タイムアウト")); }, timeoutMs || 30000);
 
     document.body.appendChild(script);
   });
