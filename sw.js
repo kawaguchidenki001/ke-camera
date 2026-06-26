@@ -1,7 +1,7 @@
 // sw.js
 // 北方カメラ - PWA キャッシュ
 
-const VERSION = "v1.6.1";
+const VERSION = "v1.6.2";
 const APP_CACHE = `kitagata-cam-${VERSION}`;
 
 const PRECACHE = [
@@ -39,6 +39,15 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+  if (event.data && event.data.type === "CLEAR_CACHE") {
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
@@ -64,7 +73,7 @@ self.addEventListener("fetch", (event) => {
 async function networkFirst(req) {
   const cache = await caches.open(APP_CACHE);
   try {
-    const fresh = await fetch(req, { cache: "no-store" });
+    const fresh = await fetch(req, { cache: "reload" });
     if (fresh && fresh.status === 200 && fresh.type === "basic") {
       cache.put(req, fresh.clone());
     }

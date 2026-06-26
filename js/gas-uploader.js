@@ -3,10 +3,26 @@
 //   ・写真は分割して GET 送信、GAS 側で Drive 一時ファイルに追記して結合
 //   ・各ステップでログを出せる(onLog コールバック)
 
-import { GAS_WEB_APP_URL, SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.2";
 
 let _seq = 0;
 const CHUNK_SIZE = 7000;  // Base64 を分割するサイズ(URL 長の安全圏)
+
+// キャッシュに古い config.js が残っていても送信先を失わないための保険
+const FALLBACK_GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec";
+const FALLBACK_SHARED_TOKEN = "kitagata-photo-2026";
+
+function getFallbackConfig() {
+  try { return window.__KITAGATA_FALLBACK_CONFIG__ || {}; } catch (e) { return {}; }
+}
+
+function getGasWebAppUrl() {
+  return String(CONFIG_GAS_WEB_APP_URL || getFallbackConfig().GAS_WEB_APP_URL || FALLBACK_GAS_WEB_APP_URL || "").trim();
+}
+
+function getSharedToken() {
+  return String(CONFIG_SHARED_TOKEN || getFallbackConfig().SHARED_TOKEN || FALLBACK_SHARED_TOKEN || "").trim();
+}
 
 /* ============================================================ ping */
 
@@ -19,7 +35,7 @@ export function pingGas() {
 export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta, onLog }) {
   const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
 
-  if (!GAS_WEB_APP_URL) throw new Error("GAS_WEB_APP_URL が未設定");
+  if (!getGasWebAppUrl()) throw new Error("GAS_WEB_APP_URL が未設定");
   if (!blob)            throw new Error("blob is required");
   if (!fileName)        throw new Error("fileName is required");
   if (!folderName)      throw new Error("folderName is required");
@@ -81,16 +97,17 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
 
 function callGasJsonp(params, timeoutMs) {
   return new Promise((resolve, reject) => {
-    if (!GAS_WEB_APP_URL) { reject(new Error("GAS_WEB_APP_URL が未設定")); return; }
+    const gasUrl = getGasWebAppUrl();
+    if (!gasUrl) { reject(new Error("GAS_WEB_APP_URL が未設定")); return; }
 
     const cbName = "_gasCb_" + (++_seq) + "_" + Date.now().toString(36);
     let timer = null;
 
-    const data = Object.assign({ secret: SHARED_TOKEN, callback: cbName }, params);
+    const data = Object.assign({ secret: getSharedToken(), callback: cbName }, params);
     const qs = Object.entries(data)
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v ?? "")}`)
       .join("&");
-    const url = `${GAS_WEB_APP_URL}?${qs}`;
+    const url = `${gasUrl}?${qs}`;
 
     const script = document.createElement("script");
     script.src = url;

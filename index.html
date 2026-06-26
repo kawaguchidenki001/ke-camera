@@ -12,10 +12,39 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="manifest" href="./manifest.json?v=1.6.2" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.2" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.2" />
+  <link rel="stylesheet" href="./style.css?v=1.6.2" />
+
+  <script>
+  window.__KITAGATA_BUILD__ = "1.6.2";
+  window.__KITAGATA_FALLBACK_CONFIG__ = {
+    GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
+    SHARED_TOKEN: "kitagata-photo-2026"
+  };
+  (async function() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("reset")) return;
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (e) {
+      console.warn("reset failed", e);
+    } finally {
+      const url = new URL(location.href);
+      url.searchParams.delete("reset");
+      url.searchParams.set("v", "1.6.2");
+      location.replace(url.toString());
+    }
+  })();
+  </script>
 </head>
 <body>
 
@@ -139,6 +168,7 @@
       <li><button id="menuReloadConfig" type="button">設定を再読み込み(Sheets)</button></li>
       <li><button id="menuTestGas" type="button">GAS 接続テスト</button></li>
       <li><button id="menuOutbox" type="button">未送信の写真</button></li>
+      <li><button id="menuForceUpdate" type="button">アプリを更新(キャッシュ削除)</button></li>
       <li><button id="menuDebug" type="button">送信ログを表示</button></li>
     </ul>
     <div class="menu-foot">
@@ -208,11 +238,21 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js"></script>
+<script type="module" src="./js/app.js?v=1.6.2"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js?v=1.6.2', { updateViaCache: 'none' })
+      .then(reg => {
+        reg.update();
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      })
       .catch(err => console.warn('SW 登録失敗:', err));
   });
 }

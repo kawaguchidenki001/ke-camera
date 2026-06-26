@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.1 - 直接カメラ画面、固定黒板、チップで選択
+// 北方カメラ v1.6.2 - 直接カメラ画面、固定黒板、チップで選択
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js";
+} from "./config.js?v=1.6.2";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,21 +16,21 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js";
+} from "./storage.js?v=1.6.2";
 import {
   showScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js";
-import { startCamera, switchCamera, stopCamera } from "./camera.js";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js";
-import { readAllConfig } from "./sheets.js";
-import { uploadViaGas, pingGas } from "./gas-uploader.js";
+} from "./ui.js?v=1.6.2";
+import { startCamera, switchCamera, stopCamera } from "./camera.js?v=1.6.2";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.2";
+import { readAllConfig } from "./sheets.js?v=1.6.2";
+import { uploadViaGas, pingGas } from "./gas-uploader.js?v=1.6.2";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js";
+} from "./photoStore.js?v=1.6.2";
 
 const { $, $$ } = dom;
 
@@ -107,10 +107,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 /* ============================================================ GAS 疎通 */
 
 async function testGasConnection() {
-  if (!GAS_WEB_APP_URL) {
-    setAuthIndicator(false);
-    return;
-  }
   try {
     const r = await pingGas();
     if (r && r.ok) {
@@ -263,6 +259,8 @@ function initEvents() {
   $("#menuReloadConfig").addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
   $("#menuTestGas").addEventListener("click", async () => { closeMenu(); await onTestGas(); });
   $("#menuOutbox").addEventListener("click", () => { closeMenu(); openOutbox(); });
+  const updBtn = $("#menuForceUpdate");
+  if (updBtn) updBtn.addEventListener("click", async () => { closeMenu(); await forceAppUpdate(); });
   const dbgBtn = $("#menuDebug");
   if (dbgBtn) dbgBtn.addEventListener("click", () => { closeMenu(); openDebug(); });
   const dbgClose = $("#debugClose"); if (dbgClose) dbgClose.addEventListener("click", closeDebug);
@@ -296,6 +294,29 @@ function initEvents() {
     }
   });
   window.addEventListener("resize", () => { renderBoard(); });
+}
+
+
+/* ============================================================ アプリ更新・キャッシュ削除 */
+
+async function forceAppUpdate() {
+  toastInfo("アプリのキャッシュを削除しています…");
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) {
+    console.warn("cache clear failed", e);
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("v", "1.6.2");
+  url.searchParams.delete("reset");
+  window.location.replace(url.toString());
 }
 
 /* ============================================================ GAS テスト */
