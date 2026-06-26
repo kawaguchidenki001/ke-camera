@@ -1,16 +1,19 @@
 /**
- * 北方カメラ - GAS Web App バックエンド(チャンク分割 GET 受信方式)
+ * 北方カメラ - GAS Web App バックエンド v3.0.0
+ * 分割 GET 受信 → Drive 一時ファイルに追記 → 結合して保存
  *
- * 写真は Base64 を 8000 文字ずつ分割して GET で送られてくる。
- * チャンクを CacheService に一時保存し、全部揃ったら結合して Drive に保存。
+ * すべて GET(JSONP)で動作。POST は使わない(no-cors POST が届かない問題を回避)。
+ * チャンクは Drive 上の一時テキストファイルに追記するので、
+ * GAS の実行インスタンスをまたいでも確実にデータが残る。
  *
  * デプロイ設定:
  *   ・実行ユーザー: 自分
  *   ・アクセスできるユーザー: 全員
  */
 
-var SHARED_TOKEN     = 'kitagata-photo-2026';   // ⚠️ アプリ側 config.js と一致させる
+var SHARED_TOKEN     = 'kitagata-photo-2026';   // ⚠️ アプリ側 config.js と一致
 var PARENT_FOLDER_ID = '1kI1oXJOify1XWtcTuUsbVAuKYRXv1XmS';
+var TEMP_FOLDER_NAME = '_uploading_tmp';        // 一時ファイル置き場
 
 // ============================================================
 // セットアップ
@@ -23,14 +26,13 @@ function setup() {
 }
 
 // ============================================================
-// エンドポイント
+// エンドポイント(GET のみ使用)
 // ============================================================
 
 function doGet(e)  { return handleRequest((e && e.parameter) ? e.parameter : {}); }
 function doPost(e) {
   var p = {};
-  try { if (e.postData && e.postData.contents) p = JSON.parse(e.postData.contents); }
-  catch (err) {}
+  try { if (e.postData && e.postData.contents) p = JSON.parse(e.postData.contents); } catch (err) {}
   return handleRequest(p);
 }
 
@@ -45,11 +47,12 @@ function handleRequest(params) {
 
   try {
     var result;
-    if      (action === 'ping')    result = handlePing();
-    else if (action === 'upchunk') result = handleUpChunk(params);
-    else if (action === 'upload')  result = handleUploadDirect(params);  // 後方互換
-    else if (action === 'list')    result = handleList(params);
-    else                           result = { ok: false, error: 'unknown action: ' + action };
+    if      (action === 'ping')      result = handlePing();
+    else if (action === 'up_start')  result = handleUpStart(params);
+    else if (action === 'up_chunk')  result = handleUpChunk(params);
+    else if (action === 'up_finish') result = handleUpFinish(params);
+    else if (action === 'list')      result = handleList(params);
+    else                             result = { ok: false, error: 'unknown action: ' + action };
     return respond(result, callback);
   } catch (err) {
     return respond({ ok: false, error: String(err.message || err) }, callback);
@@ -62,71 +65,109 @@ function handleRequest(params) {
 
 function handlePing() {
   var folder = DriveApp.getFolderById(PARENT_FOLDER_ID);
-  return { ok: true, version: '2.0.0', folder: folder.getName(), time: new Date().toISOString() };
+  return { ok: true, version: '3.0.0', folder: folder.getName(), time: new Date().toISOString() };
 }
 
 // ============================================================
-// upchunk: 分割されたチャンクを受け取り、最後に結合して保存
+// 一時フォルダ取得
+// ============================================================
+
+function getTempFolder_() {
+  var parent = DriveApp.getFolderById(PARENT_FOLDER_ID);
+  var it = parent.getFoldersByName(TEMP_FOLDER_NAME);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(TEMP_FOLDER_NAME);
+}
+
+// 一時ファイル(メタ情報JSON と データ本体)を uid で探す
+function findTempFile_(tmp, name) {
+  var it = tmp.getFilesByName(name);
+  if (it.hasNext()) return it.next();
+  return null;
+}
+
+// ============================================================
+// up_start: メタ情報を一時ファイルに保存、データ用ファイルを空で作る
+// ============================================================
+
+function handleUpStart(params) {
+  var uid    = String(params.uid    || '').trim();
+  var folder = String(params.folder || '').trim();
+  var name   = String(params.name   || '').trim();
+  var mime   = String(params.mime   || 'image/jpeg').trim();
+  var meta   = String(params.meta   || '');
+  var total  = parseInt(params.total || '0', 10);
+
+  if (!uid)    throw new Error('uid required');
+  if (!folder) throw new Error('folder required');
+  if (!name)   throw new Error('name required');
+
+  var tmp = getTempFolder_();
+
+  // 既存の同 uid ファイルがあれば消す(作り直し)
+  removeTempByUid_(tmp, uid);
+
+  // メタ情報ファイル
+  var metaObj = { folder: folder, name: name, mime: mime, meta: meta, total: total };
+  tmp.createFile(uid + '.meta.json', JSON.stringify(metaObj), 'application/json');
+
+  // データ本体ファイル(空で開始)
+  tmp.createFile(uid + '.data.txt', '', 'text/plain');
+
+  return { ok: true, uid: uid, started: true };
+}
+
+// ============================================================
+// up_chunk: データファイルにチャンクを追記
 // ============================================================
 
 function handleUpChunk(params) {
   var uid   = String(params.uid   || '').trim();
   var idx   = parseInt(params.idx || '0', 10);
-  var total = parseInt(params.total || '1', 10);
   var chunk = String(params.chunk || '');
 
   if (!uid) throw new Error('uid required');
 
-  var cache = CacheService.getScriptCache();
+  var tmp = getTempFolder_();
+  var dataFile = findTempFile_(tmp, uid + '.data.txt');
+  if (!dataFile) throw new Error('data file not found (start されていない or 期限切れ)');
 
-  // チャンクを保存(個別キー)
-  cache.put(uid + '_' + idx, chunk, 600);  // 10分保持
+  // 既存内容に追記(GAS は追記APIがないので read → write)
+  var current = dataFile.getBlob().getDataAsString();
+  dataFile.setContent(current + chunk);
 
-  // 最初のチャンクならメタ情報も保存
-  if (idx === 0) {
-    var metaObj = {
-      folder: String(params.folder || '').trim(),
-      name:   String(params.name   || '').trim(),
-      mime:   String(params.mime   || 'image/jpeg').trim(),
-      meta:   String(params.meta   || ''),
-      total:  total,
-    };
-    cache.put(uid + '_meta', JSON.stringify(metaObj), 600);
+  return { ok: true, idx: idx };
+}
+
+// ============================================================
+// up_finish: データを結合して Drive 本フォルダに保存、一時ファイル削除
+// ============================================================
+
+function handleUpFinish(params) {
+  var uid = String(params.uid || '').trim();
+  if (!uid) throw new Error('uid required');
+
+  var tmp = getTempFolder_();
+
+  var metaFile = findTempFile_(tmp, uid + '.meta.json');
+  var dataFile = findTempFile_(tmp, uid + '.data.txt');
+  if (!metaFile) throw new Error('meta file not found');
+  if (!dataFile) throw new Error('data file not found');
+
+  var metaObj = JSON.parse(metaFile.getBlob().getDataAsString());
+  var base64  = dataFile.getBlob().getDataAsString();
+
+  if (!base64 || base64.length < 100) {
+    throw new Error('データが空または不足 (len=' + base64.length + ')');
   }
 
-  // 最後のチャンクでなければ、ここで受領応答を返す
-  if (idx < total - 1) {
-    return { ok: true, received: idx };
-  }
-
-  // ===== 最後のチャンク: 全部揃えて結合 =====
-  var metaStr = cache.get(uid + '_meta');
-  if (!metaStr) throw new Error('meta not found (cache expired?)');
-  var metaObj = JSON.parse(metaStr);
-
-  if (!metaObj.folder) throw new Error('folder is required');
-  if (!metaObj.name)   throw new Error('name is required');
-
-  // 全チャンクを結合
-  var keys = [];
-  for (var i = 0; i < total; i++) keys.push(uid + '_' + i);
-  var all = cache.getAll(keys);
-
-  var base64 = '';
-  for (var j = 0; j < total; j++) {
-    var part = all[uid + '_' + j];
-    if (part === null || part === undefined) {
-      throw new Error('チャンク欠落: ' + j + '/' + total + ' (再送信してください)');
-    }
-    base64 += part;
-  }
-
-  // Base64 → Blob → Drive 保存
+  // Base64 → Blob
   var bytes = Utilities.base64Decode(base64);
   var blob  = Utilities.newBlob(bytes, metaObj.mime, metaObj.name);
 
+  // 本フォルダのサブフォルダへ保存
   var parent    = DriveApp.getFolderById(PARENT_FOLDER_ID);
-  var subFolder = getOrCreateSubFolder(parent, metaObj.folder);
+  var subFolder = getOrCreateSubFolder_(parent, metaObj.folder);
 
   var description = '';
   if (metaObj.meta) {
@@ -141,60 +182,31 @@ function handleUpChunk(params) {
   var file = subFolder.createFile(blob);
   if (description) file.setDescription(description);
 
-  // キャッシュ掃除
-  cache.remove(uid + '_meta');
-  for (var x = 0; x < total; x++) cache.remove(uid + '_' + x);
+  // 一時ファイル削除
+  removeTempByUid_(tmp, uid);
 
   return {
     ok:         true,
     fileId:     file.getId(),
     fileName:   file.getName(),
-    folderId:   subFolder.getId(),
     folderName: subFolder.getName(),
     url:        file.getUrl(),
+    bytes:      bytes.length,
   };
 }
 
-// ============================================================
-// upload: 一括(後方互換、小さいデータ用)
-// ============================================================
-
-function handleUploadDirect(params) {
-  var folderName = String(params.folder || '').trim();
-  var name       = String(params.name   || '').trim();
-  var mime       = String(params.mime   || 'image/jpeg').trim();
-  var data       = String(params.data   || '').trim();
-  var metaStr    = String(params.meta   || '').trim();
-
-  if (!folderName) throw new Error('folder is required');
-  if (!name)       throw new Error('name is required');
-  if (!data)       throw new Error('data is required');
-
-  var bytes = Utilities.base64Decode(data);
-  var blob  = Utilities.newBlob(bytes, mime, name);
-
-  var parent    = DriveApp.getFolderById(PARENT_FOLDER_ID);
-  var subFolder = getOrCreateSubFolder(parent, folderName);
-
-  var description = '';
-  if (metaStr) {
-    try {
-      var m = JSON.parse(metaStr);
-      var lines = [];
-      for (var k in m) lines.push(k + ': ' + m[k]);
-      description = lines.join('\n');
-    } catch (e) { description = metaStr; }
-  }
-
-  var file = subFolder.createFile(blob);
-  if (description) file.setDescription(description);
-
-  return { ok: true, fileId: file.getId(), fileName: file.getName(), url: file.getUrl() };
+function removeTempByUid_(tmp, uid) {
+  ['.meta.json', '.data.txt'].forEach(function(suffix) {
+    var it = tmp.getFilesByName(uid + suffix);
+    while (it.hasNext()) {
+      it.next().setTrashed(true);
+    }
+  });
 }
 
-function getOrCreateSubFolder(parent, name) {
-  var iter = parent.getFoldersByName(name);
-  if (iter.hasNext()) return iter.next();
+function getOrCreateSubFolder_(parent, name) {
+  var it = parent.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
   return parent.createFolder(name);
 }
 
@@ -204,11 +216,11 @@ function getOrCreateSubFolder(parent, name) {
 
 function handleList(params) {
   var folderName = String(params.folder || '').trim();
-  if (!folderName) throw new Error('folder is required');
+  if (!folderName) throw new Error('folder required');
   var parent = DriveApp.getFolderById(PARENT_FOLDER_ID);
-  var iter   = parent.getFoldersByName(folderName);
-  if (!iter.hasNext()) return { ok: true, files: [] };
-  var sub = iter.next();
+  var it = parent.getFoldersByName(folderName);
+  if (!it.hasNext()) return { ok: true, files: [] };
+  var sub = it.next();
   var files = [];
   var fi = sub.getFiles();
   while (fi.hasNext() && files.length < 200) {

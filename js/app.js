@@ -39,6 +39,22 @@ const { $, $$ } = dom;
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 
+/* ============================================================ デバッグログ */
+
+const debugLines = [];
+function dbg(msg) {
+  const t = new Date().toLocaleTimeString("ja-JP");
+  const line = `[${t}] ${msg}`;
+  debugLines.push(line);
+  if (debugLines.length > 200) debugLines.shift();
+  const el = document.getElementById("debugLog");
+  if (el) {
+    el.textContent = debugLines.join("\n");
+    el.scrollTop = el.scrollHeight;
+  }
+  console.log(line);
+}
+
 /* ============================================================ State */
 
 const state = {
@@ -247,6 +263,14 @@ function initEvents() {
   $("#menuReloadConfig").addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
   $("#menuTestGas").addEventListener("click", async () => { closeMenu(); await onTestGas(); });
   $("#menuOutbox").addEventListener("click", () => { closeMenu(); openOutbox(); });
+  const dbgBtn = $("#menuDebug");
+  if (dbgBtn) dbgBtn.addEventListener("click", () => { closeMenu(); openDebug(); });
+  const dbgClose = $("#debugClose"); if (dbgClose) dbgClose.addEventListener("click", closeDebug);
+  const dbgClose2 = $("#debugClose2"); if (dbgClose2) dbgClose2.addEventListener("click", closeDebug);
+  const dbgClear = $("#debugClear"); if (dbgClear) dbgClear.addEventListener("click", () => {
+    debugLines.length = 0;
+    const el = $("#debugLog"); if (el) el.textContent = "";
+  });
 
   // 認証ドット
   $("#authStatusBtn").addEventListener("click", onAuthDotClick);
@@ -432,6 +456,13 @@ async function pickStage() {
 function openMenu()  { $("#menu").classList.add("open"); }
 function closeMenu() { $("#menu").classList.remove("open"); }
 
+function openDebug() {
+  const el = $("#debugLog");
+  if (el) { el.textContent = debugLines.join("\n"); el.scrollTop = el.scrollHeight; }
+  $("#debugPanel").classList.add("open");
+}
+function closeDebug() { $("#debugPanel").classList.remove("open"); }
+
 /* ============================================================ Camera */
 
 async function startCameraFlow() {
@@ -563,6 +594,7 @@ async function onShoot() {
   btn.disabled = true;
   const origText = btn.textContent;
   btn.textContent = "処理中…";
+  dbg("=== 撮影開始 ===");
 
   try {
     const video = $("#videoEl");
@@ -702,11 +734,14 @@ async function uploadOne(photoId) {
       folderName,
       mimeType: "image/jpeg",
       meta,
+      onLog: dbg,
     });
     await markUploaded(photoId, result.fileId || "");
+    dbg(`✓ 保存成功: ${result.fileName} (${result.bytes}B) fileId=${result.fileId}`);
     return result;
   } catch (e) {
     await markFailed(photoId, e.message || String(e));
+    dbg(`✗ 失敗: ${e.message}`);
     throw e;
   }
 }

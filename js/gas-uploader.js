@@ -1,12 +1,12 @@
 // js/gas-uploader.js
-// GAS Web App と通信(すべて JSONP GET、応答が読める方式)
-//   ・ping:   疎通確認
-//   ・upload: 写真を 8000 文字ずつ分割して送信 → GAS 側で結合
+// GAS Web App と通信(すべて JSONP GET。応答を必ず読む)
+//   ・写真は分割して GET 送信、GAS 側で Drive 一時ファイルに追記して結合
+//   ・各ステップでログを出せる(onLog コールバック)
 
 import { GAS_WEB_APP_URL, SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js";
 
 let _seq = 0;
-const CHUNK_SIZE = 8000;  // Base64 を分割するサイズ(URL 長制限の安全圏)
+const CHUNK_SIZE = 7000;  // Base64 を分割するサイズ(URL 長の安全圏)
 
 /* ============================================================ ping */
 
@@ -14,68 +14,74 @@ export function pingGas() {
   return callGasJsonp({ action: "ping" }, 15000);
 }
 
-/* ============================================================ upload(分割GET送信) */
+/* ============================================================ upload(分割GET → Drive一時ファイル追記方式) */
 
-export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta }) {
+export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta, onLog }) {
+  const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
+
   if (!GAS_WEB_APP_URL) throw new Error("GAS_WEB_APP_URL が未設定");
   if (!blob)            throw new Error("blob is required");
   if (!fileName)        throw new Error("fileName is required");
   if (!folderName)      throw new Error("folderName is required");
 
   const base64 = await blobToBase64NoPrefix(blob);
-  const mime   = mimeType || blob.type || "image/jpeg";
+  const mime    = mimeType || blob.type || "image/jpeg";
   const metaStr = meta ? JSON.stringify(meta) : "";
 
-  // アップロードセッション ID(この写真を一意に識別)
   const uploadId = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-
-  // チャンクに分割
   const total = Math.ceil(base64.length / CHUNK_SIZE);
   if (total === 0) throw new Error("画像データが空です");
 
-  // 各チャンクを順番に送信
-  for (let i = 0; i < total; i++) {
-    const chunk = base64.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-    const isFirst = (i === 0);
-    const isLast  = (i === total - 1);
+  log(`送信開始: ${fileName} (${total}分割, ${Math.round(base64.length/1024)}KB)`);
 
-    const params = {
-      action: "upchunk",
-      uid:    uploadId,
-      idx:    String(i),
-      total:  String(total),
-      chunk:  chunk,
-    };
-    // 最初のチャンクにメタ情報を載せる
-    if (isFirst) {
-      params.folder = folderName;
-      params.name   = fileName;
-      params.mime   = mime;
-      params.meta   = metaStr;
-    }
-
-    const resp = await callGasJsonp(params, GAS_TIMEOUT_MS);
-    if (!resp || !resp.ok) {
-      throw new Error(resp?.error || `チャンク送信失敗 (${i + 1}/${total})`);
-    }
-
-    // 最後のチャンクの応答に fileId が含まれる
-    if (isLast) {
-      return resp;
-    }
+  // ① 開始: 一時ファイルを作る
+  const startResp = await callGasJsonp({
+    action: "up_start",
+    uid:    uploadId,
+    folder: folderName,
+    name:   fileName,
+    mime:   mime,
+    meta:   metaStr,
+    total:  String(total),
+  }, GAS_TIMEOUT_MS);
+  log(`開始応答: ${JSON.stringify(startResp)}`);
+  if (!startResp || !startResp.ok) {
+    throw new Error("開始失敗: " + (startResp?.error || "不明"));
   }
 
-  return { ok: true };
+  // ② 各チャンクを順番に追記
+  for (let i = 0; i < total; i++) {
+    const chunk = base64.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    const resp = await callGasJsonp({
+      action: "up_chunk",
+      uid:    uploadId,
+      idx:    String(i),
+      chunk:  chunk,
+    }, GAS_TIMEOUT_MS);
+    if (!resp || !resp.ok) {
+      throw new Error(`チャンク ${i + 1}/${total} 失敗: ${resp?.error || "不明"}`);
+    }
+    log(`チャンク ${i + 1}/${total} OK`);
+  }
+
+  // ③ 完了: 結合して Drive に保存
+  const finResp = await callGasJsonp({
+    action: "up_finish",
+    uid:    uploadId,
+  }, GAS_TIMEOUT_MS);
+  log(`完了応答: ${JSON.stringify(finResp)}`);
+  if (!finResp || !finResp.ok) {
+    throw new Error("結合失敗: " + (finResp?.error || "不明"));
+  }
+
+  return finResp;
 }
 
 /* ============================================================ JSONP GET */
 
 function callGasJsonp(params, timeoutMs) {
   return new Promise((resolve, reject) => {
-    if (!GAS_WEB_APP_URL) {
-      reject(new Error("GAS_WEB_APP_URL が未設定"));
-      return;
-    }
+    if (!GAS_WEB_APP_URL) { reject(new Error("GAS_WEB_APP_URL が未設定")); return; }
 
     const cbName = "_gasCb_" + (++_seq) + "_" + Date.now().toString(36);
     let timer = null;
@@ -97,8 +103,8 @@ function callGasJsonp(params, timeoutMs) {
     };
 
     window[cbName] = (resp) => { cleanup(); resolve(resp); };
-    script.onerror = () => { cleanup(); reject(new Error("GAS 通信失敗(ネットワーク or URL 不正)")); };
-    timer = setTimeout(() => { cleanup(); reject(new Error("GAS タイムアウト")); }, timeoutMs || 30000);
+    script.onerror = () => { cleanup(); reject(new Error("通信失敗(ネットワーク or URL不正)")); };
+    timer = setTimeout(() => { cleanup(); reject(new Error("タイムアウト")); }, timeoutMs || 30000);
 
     document.body.appendChild(script);
   });
