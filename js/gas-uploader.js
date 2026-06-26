@@ -1,14 +1,12 @@
 // js/gas-uploader.js
 // GAS Web App と通信
-// v1.6.7: 画像は no-cors POST + JSONP状態確認。未対応時は iframe form POST にフォールバック。
+// v1.6.8: スマホ安定優先。画像は iframe form POST で送信し、GAS状態確認で完了判定。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.7";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.8";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
 const FORM_POST_TIMEOUT_MS = Math.max(90000, (GAS_TIMEOUT_MS || 60000) + 30000);
-const STATUS_POLL_FIRST_DELAY_MS = 650;
-const STATUS_POLL_INTERVAL_MS = 850;
 
 const LS_GAS_URL = "kitagata.gasWebAppUrl";
 const LS_TOKEN   = "kitagata.sharedToken";
@@ -125,133 +123,17 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
   log(`送信開始: ${fileName} (${Math.round(base64.length/1024)}KB)`);
 
-  // v1.6.7: まず fetch(no-cors) POST で送る。スマホの hidden iframe 固まり対策。
-  // 応答本文は読めないため、requestId を使って GAS 側の保存結果を JSONP で確認する。
-  let resp;
-  if (typeof fetch === "function" && typeof URLSearchParams === "function") {
-    try {
-      resp = await uploadViaGasFetchPost({
-        base64, fileName, folderName, mime, metaStr,
-        timeoutMs: FORM_POST_TIMEOUT_MS,
-        onLog: log,
-      });
-    } catch (e) {
-      // fetch 自体が即時失敗する古い環境のみ iframe POST へ切替。長時間待った後の再送は重複防止のため行わない。
-      if (!e || e.maybeSent) throw e;
-      log(`高速POST不可のため iframe POST に切替: ${e.message || e}`);
-      resp = await uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, timeoutMs: FORM_POST_TIMEOUT_MS, onLog: log });
-    }
-  } else {
-    resp = await uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, timeoutMs: FORM_POST_TIMEOUT_MS, onLog: log });
-  }
+  // v1.6.8: 画像本体は hidden iframe + form POST で送る。
+  // 一部ブラウザでは Drive 保存後の postMessage が親画面へ届かないため、
+  // requestId を使って GAS 側の保存結果を JSONP で確認する。
+  const resp = await uploadViaGasFormPost({
+    base64, fileName, folderName, mime, metaStr,
+    timeoutMs: FORM_POST_TIMEOUT_MS,
+    onLog: log,
+  });
   log(`POST送信応答: ${JSON.stringify(resp)}`);
   if (!resp || !resp.ok) throw new Error(resp?.error || "POST送信失敗");
   return resp;
-}
-
-
-/* ============================================================ fetch no-cors POST */
-
-function uploadViaGasFetchPost({ base64, fileName, folderName, mime, metaStr, timeoutMs, onLog }) {
-  const log = (msg) => { if (typeof onLog === "function") onLog(msg); };
-  const gasUrl = getGasWebAppUrl();
-  const gasProblem = validateGasUrl(gasUrl);
-  if (gasProblem) return Promise.reject(new Error(gasProblem));
-
-  const requestId = "fp_" + (++_seq) + "_" + Date.now().toString(36);
-  const body = new URLSearchParams();
-  body.set("action", "upload_form");
-  body.set("secret", getSharedToken());
-  body.set("requestId", requestId);
-  body.set("folder", folderName);
-  body.set("name", fileName);
-  body.set("mime", mime);
-  body.set("meta", metaStr || "");
-  body.set("data", base64);
-
-  log(`高速POST送信: ${fileName} requestId=${requestId}`);
-
-  const controller = (typeof AbortController === "function") ? new AbortController() : null;
-  let sendStartedAt = Date.now();
-  let sendFailedQuickly = false;
-
-  const sendPromise = fetch(gasUrl, {
-    method: "POST",
-    mode: "no-cors",
-    cache: "no-store",
-    credentials: "omit",
-    redirect: "follow",
-    body,
-    signal: controller ? controller.signal : undefined,
-  }).catch((e) => {
-    // 送信直後の失敗なら未送信の可能性が高い。数秒後の失敗はGAS側で実行済みの可能性がある。
-    sendFailedQuickly = (Date.now() - sendStartedAt) < 3000;
-    if (sendFailedQuickly) {
-      const err = new Error("高速POST送信を開始できませんでした: " + (e.message || e));
-      err.maybeSent = false;
-      throw err;
-    }
-    log(`高速POST送信警告: ${e.message || e}`);
-  });
-
-  const statusPromise = pollUploadStatus(requestId, timeoutMs, log);
-
-  return Promise.race([
-    sendPromise.then(() => statusPromise),
-    statusPromise,
-  ]).finally(() => {
-    if (controller) {
-      try { controller.abort(); } catch (e) {}
-    }
-    // URLSearchParams に保持した大きな文字列を早めに解放するための保険
-    try { body.set("data", ""); } catch (e) {}
-  }).catch((e) => {
-    if (sendFailedQuickly) e.maybeSent = false;
-    else e.maybeSent = true;
-    throw e;
-  });
-}
-
-function pollUploadStatus(requestId, timeoutMs, log) {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    let settled = false;
-    let timer = null;
-    let polls = 0;
-
-    const done = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      fn(value);
-    };
-
-    async function tick() {
-      if (settled) return;
-      polls++;
-      try {
-        const status = await callGasJsonp({ action: "upload_status", requestId }, 10000);
-        if (settled) return;
-        if (status && status.ok && status.done) {
-          const resp = status.response || {};
-          if (resp && resp.ok) done(resolve, resp);
-          else done(reject, new Error(resp.error || "GAS POST 保存結果がエラーでした"));
-          return;
-        }
-        if (polls === 1 || polls % 6 === 0) log(`POST保存確認中: ${requestId}`);
-      } catch (e) {
-        if (polls === 1 || polls % 6 === 0) log(`POST保存確認待ち: ${e.message || e}`);
-      }
-
-      if ((Date.now() - started) > (timeoutMs || 90000)) {
-        done(reject, new Error("POST送信結果の確認がタイムアウトしました。Driveに写真がある場合は、未送信一覧を再読み込みしてください。"));
-        return;
-      }
-      timer = setTimeout(tick, polls < 3 ? STATUS_POLL_FIRST_DELAY_MS : STATUS_POLL_INTERVAL_MS);
-    }
-
-    timer = setTimeout(tick, STATUS_POLL_FIRST_DELAY_MS);
-  });
 }
 
 /* ============================================================ iframe form POST */
@@ -350,7 +232,7 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
         // POST中は一時的に status が取れないことがあるため、タイムアウトまでは再試行する。
         log(`POST保存確認待ち: ${e.message || e}`);
       }
-      if (!settled) pollTimer = setTimeout(pollStatus, STATUS_POLL_INTERVAL_MS);
+      if (!settled) pollTimer = setTimeout(pollStatus, 1200);
     }
 
     window.addEventListener("message", onMessage);
@@ -363,7 +245,7 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
 
     try {
       form.submit();
-      pollTimer = setTimeout(pollStatus, STATUS_POLL_FIRST_DELAY_MS);
+      pollTimer = setTimeout(pollStatus, 1200);
     } catch (e) {
       finishErr(e);
     }
