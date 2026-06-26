@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.6.6: GAS Web App 方式)
+// 北方カメラ - 設定値(v1.6.7: GAS Web App 方式)
 
-export const APP_VERSION = "1.6.6";
+export const APP_VERSION = "1.6.7";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -77,7 +77,7 @@ export const FALLBACK_STAGES = Object.freeze([
 // ファイル
 // ============================================================
 export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{fixture}_{stage}_{seq}.jpg";
-export const JPEG_QUALITY = 0.92;
+export const JPEG_QUALITY = 0.76;  // v1.6.7: 高速送信用に圧縮率を上げる
 export const PENDING_LIMIT = 100;
 export const PENDING_WARN  = 80;
 export const AUTO_CLEANUP_DAYS = 7;
@@ -87,8 +87,8 @@ export const AUTO_CLEANUP_DAYS = 7;
 // ============================================================
 export const CAMERA_DEFAULTS = Object.freeze({
   facing: "environment",
-  width:  1920,
-  height: 1440,
+  width:  1280,
+  height: 960,
 });
 
 export const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;

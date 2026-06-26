@@ -86,9 +86,16 @@ export async function getAllPhotos() {
 }
 
 export async function getPendingPhotos() {
+  // v1.6.7: スマホで送信途中に止まった写真を再送対象へ戻せるよう、古い uploading も表示対象にする
   const all = await getAllPhotos();
+  const staleMs = 2 * 60 * 1000;
+  const now = Date.now();
   return all
-    .filter(p => p.status === "pending" || p.status === "failed")
+    .filter(p =>
+      p.status === "pending" ||
+      p.status === "failed" ||
+      (p.status === "uploading" && (!p.uploadingAt || (now - p.uploadingAt) > staleMs))
+    )
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -114,6 +121,7 @@ export async function countAll() {
 export async function markUploading(id) {
   return updatePhoto(id, (p) => {
     p.status = "uploading";
+    p.uploadingAt = Date.now();
     p.attempts = (p.attempts || 0) + 1;
   });
 }
@@ -122,6 +130,7 @@ export async function markUploaded(id, driveFileId) {
   return updatePhoto(id, (p) => {
     p.status = "uploaded";
     p.uploadedAt = Date.now();
+    p.uploadingAt = null;
     p.driveFileId = driveFileId;
     p.lastError = null;
   });
@@ -130,8 +139,26 @@ export async function markUploaded(id, driveFileId) {
 export async function markFailed(id, errorMessage) {
   return updatePhoto(id, (p) => {
     p.status = "failed";
+    p.uploadingAt = null;
     p.lastError = errorMessage;
   });
+}
+
+export async function resetStaleUploading(maxAgeMs = 2 * 60 * 1000) {
+  const all = await getAllPhotos();
+  const now = Date.now();
+  let reset = 0;
+  for (const p of all) {
+    if (p.status === "uploading" && (!p.uploadingAt || (now - p.uploadingAt) > maxAgeMs)) {
+      await updatePhoto(p.id, (rec) => {
+        rec.status = "failed";
+        rec.uploadingAt = null;
+        rec.lastError = "前回の送信が中断されたため、再送信待ちに戻しました";
+      });
+      reset++;
+    }
+  }
+  return reset;
 }
 
 async function updatePhoto(id, updater) {
