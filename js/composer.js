@@ -1,31 +1,38 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(5行構成・撮影者なし)
-// 行構成: 工事名 / 場所 / 照明器具 / 施工段階 / 会社名(右寄せ)
+// GenCan風 黒板焼き込み(v1.6.0 仕様)
+// 行構成:
+//   1) 工事名(ラベル+値、下罫線あり)
+//   2) 場所(ラベル+値、下罫線あり)
+//   3) 照明器具(左寄せ、少し小さく、下罫線なし)
+//   4) 施工段階(左寄せ、少し小さく、下罫線なし)
+//   5) 会社名(右下角、大きめ、下罫線なし)
 
 export const BOARD_HR = 0.73;
 
-// 各行の高さ比(合計1.0)
-// 工事名15% / 場所15% / 照明器具27% / 施工段階27% / 会社16%
-export const BROWH = { a: 0.15, b: 0.15, c: 0.27, d: 0.27, e: 0.16 };
+// 各行の高さ比(合計 1.0)
+export const BROWH = {
+  a: 0.18,  // 工事名
+  b: 0.18,  // 場所
+  c: 0.22,  // 照明器具
+  d: 0.20,  // 施工段階
+  e: 0.22,  // 会社名(大きめ)
+};
 
 /**
  * 写真+黒板を生成して JPEG Blob を返す
  *
- * @param {ImageBitmap|HTMLVideoElement|HTMLImageElement|HTMLCanvasElement} source
  * @param {object} options
- *   - boardRect, lineScale, labels, values: 黒板
- *   - jpegQuality: 0..1
- *   - cropToRatio: true なら 4:3 にセンタークロップ
- *   - alsoNoBoard: true なら黒板なし版も生成
- *   - maxLongSide: 長辺の最大ピクセル数(指定すると縮小、未指定=元サイズのまま)
+ *   - boardRect: {x,y,w} 比率(固定値が渡される)
+ *   - labels: {a,b}
+ *   - values: {a,b,c,d,e}
+ *   - jpegQuality, cropToRatio, alsoNoBoard, maxLongSide
  *
- * @returns {Promise<{withBoard:{blob,dataUrl}, noBoard?, width, height}>}
+ * @returns {Promise<{withBoard, noBoard?, width, height}>}
  */
 export async function composePhoto(source, options) {
   const opts = options || {};
-  const boardRect   = opts.boardRect   || { x: 0, y: 1, w: 0.37 };
-  const lineScale   = opts.lineScale   || { a:1, b:1, c:1, d:1, e:1 };
-  const labels      = opts.labels      || { a:"工事名", b:"場所" };
+  const boardRect   = opts.boardRect   || { x: 0, y: 1, w: 0.38 };
+  const labels      = opts.labels      || { a: "工事名", b: "場所" };
   const values      = opts.values      || {};
   const jpegQuality = clamp(opts.jpegQuality ?? 0.92, 0.5, 1.0);
   const cropToRatio = opts.cropToRatio !== false;
@@ -36,7 +43,6 @@ export async function composePhoto(source, options) {
   const sh = source.height || source.videoHeight || source.naturalHeight;
   if (!sw || !sh) throw new Error("元画像のサイズが取得できません");
 
-  // 4:3 センタークロップ
   let cw, ch, cx, cy;
   if (cropToRatio) {
     if (sw / sh >= 4 / 3) { ch = sh; cw = Math.round(sh * 4 / 3); }
@@ -47,7 +53,6 @@ export async function composePhoto(source, options) {
     cw = sw; ch = sh; cx = 0; cy = 0;
   }
 
-  // 長辺リサイズ
   let outW = cw, outH = ch;
   if (maxLongSide > 0) {
     const long = Math.max(cw, ch);
@@ -70,7 +75,7 @@ export async function composePhoto(source, options) {
   }
 
   const withBoardCanvas = copyCanvas(base);
-  drawBoard(withBoardCanvas, { boardRect, lineScale, labels, values });
+  drawBoard(withBoardCanvas, { boardRect, labels, values });
 
   const wbBlob = await canvasToBlob(withBoardCanvas, "image/jpeg", jpegQuality);
   const wbDataUrl = await blobToDataUrl(wbBlob);
@@ -85,7 +90,7 @@ export async function composePhoto(source, options) {
 
 /* ============================================================ 黒板描画 */
 
-function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
+function drawBoard(canvas, { boardRect, labels, values }) {
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
 
@@ -116,20 +121,24 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
 
   let yy = by;
 
-  // ラベル+値の行
-  function rowLV(label, value, k, hf) {
+  // 行1,2: ラベル+値、下罫線+左ラベル枠
+  function rowLV(label, value, hf) {
     const rh = bh * hf;
+    // 下罫線
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 1;
     line(ctx, bx + 4, yy + rh, bx + bw - 4, yy + rh);
+    // ラベル右枠
     line(ctx, bx + labelW, yy + 2, bx + labelW, yy + rh);
 
+    // ラベル
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
-    ctx.font = Math.max(7, Math.floor(rh * 0.4)) + "px " + jpFont();
+    ctx.font = Math.max(8, Math.floor(rh * 0.42)) + "px " + jpFont();
     ctx.fillText(label, bx + labelW / 2, yy + rh / 2, labelW - 6);
 
-    const fs = Math.max(8, Math.floor(rh * 0.6 * (lineScale[k] || 1)));
+    // 値
+    const fs = Math.max(10, Math.floor(rh * 0.6));
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "left";
     if (value) {
@@ -138,42 +147,39 @@ function drawBoard(canvas, { boardRect, lineScale, labels, values }) {
     yy += rh;
   }
 
-  // 中央揃え行(ラベルなし、大文字)
-  function rowFree(value, k, hf) {
+  // 行3,4: 左寄せ、少し小さく、下罫線なし
+  function rowLeft(value, hf) {
     const rh = bh * hf;
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
-    ctx.lineWidth = 1;
-    line(ctx, bx + 4, yy + rh, bx + bw - 4, yy + rh);
-
-    const fs = Math.max(8, Math.floor(rh * 0.55 * (lineScale[k] || 1)));
+    const fs = Math.max(9, Math.floor(rh * 0.5));  // 少し小さく
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
-    ctx.textAlign = "center";
+    ctx.textAlign = "left";
     if (value) {
-      ctx.fillText(value, bx + bw / 2, yy + rh / 2, bw - pad * 2);
+      ctx.fillText(value, bx + pad, yy + rh / 2, bw - pad * 2);
     }
     yy += rh;
   }
 
-  // 会社名(右寄せ・小)
-  function rowCo(value, k, hf) {
+  // 行5: 会社名(右下、大きめ)
+  function rowCompany(value, hf) {
     const rh = bh * hf;
-    const fs = Math.max(7, Math.floor(rh * 0.45 * (lineScale[k] || 1)));
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    const fs = Math.max(10, Math.floor(rh * 0.62));  // 大きめ
+    ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "right";
     if (value) {
-      ctx.fillText(value, bx + bw - pad, yy + rh / 2, bw - pad * 2);
+      // 右下角に近い位置(下に寄せる)
+      ctx.fillText(value, bx + bw - pad, yy + rh - rh * 0.3, bw - pad * 2);
     }
     yy += rh;
   }
 
-  // 5 行描画
-  rowLV(labels.a || "工事名", values.a || "", "a", BROWH.a);
-  rowLV(labels.b || "場所",   values.b || "", "b", BROWH.b);
-  rowFree(values.c || "", "c", BROWH.c);  // 照明器具
-  rowFree(values.d || "", "d", BROWH.d);  // 施工段階
-  rowCo(values.e || "", "e", BROWH.e);    // 会社名
+  // 5 行を描画
+  rowLV(labels.a || "工事名", values.a || "", BROWH.a);
+  rowLV(labels.b || "場所",   values.b || "", BROWH.b);
+  rowLeft(values.c || "", BROWH.c);  // 照明器具(左寄せ)
+  rowLeft(values.d || "", BROWH.d);  // 施工段階(左寄せ)
+  rowCompany(values.e || "", BROWH.e);  // 会社名(右下大きめ)
 }
 
 /* ============================================================ utilities */

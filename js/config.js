@@ -1,7 +1,7 @@
 // js/config.js
 // 北方カメラ - 設定値(v1.5.0: GAS Web App 方式)
 
-export const APP_VERSION = "1.5.0";
+export const APP_VERSION = "1.6.0";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -9,11 +9,11 @@ export const APP_NAME = "北方カメラ";
 // ============================================================
 // ⚠️ Kさんが GAS をデプロイ後、URL をここに記入してください
 // https://script.google.com/macros/s/AKfycb.../exec の形式
-export const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec";
+export const GAS_WEB_APP_URL = "";
 
 // GAS 側の SHARED_TOKEN と一致させる
 // ⚠️ デフォルトのままにせず、推測されにくい文字列に変更してください
-export const SHARED_TOKEN = "kawaguchi-kitagata-photo-x7q2p9";
+export const SHARED_TOKEN = "kitagata-photo-2026";
 
 // JSONP のタイムアウト(ms)
 export const GAS_TIMEOUT_MS = 60000;
@@ -22,7 +22,7 @@ export const GAS_TIMEOUT_MS = 60000;
 // Sheets 連携(現状維持)
 // ============================================================
 export const SHEETS_API_KEY = "AIzaSyA1EPCXjMfkhso-kiu7SHRDmdts027GpQs";
-export const SHEETS_ID = "1uPhgQOJqhFF4KDsB-VUPdU-83P552rCT8zyCCxHfZD0";  // 北方カメラ設定シートのID
+export const SHEETS_ID = "";  // 北方カメラ設定シートのID
 
 export const SHEET_TAB_PROJECT  = "工事情報";
 export const SHEET_TAB_BUILDING = "棟と部屋";

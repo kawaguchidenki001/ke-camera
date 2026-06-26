@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.5.0 - GAS Web App 経由(ログイン不要)
+// 北方カメラ v1.6.0 - 直接カメラ画面、固定黒板、チップで選択
 
 import {
   APP_VERSION,
@@ -16,8 +16,6 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-  loadBoardRect, saveBoardRect, loadBoardScale, saveBoardScale,
-  loadNoBoardFlag, saveNoBoardFlag,
 } from "./storage.js";
 import {
   showScreen, toast, toastSuccess, toastError, toastInfo,
@@ -35,6 +33,11 @@ import {
 } from "./photoStore.js";
 
 const { $, $$ } = dom;
+
+/* ============================================================ 固定黒板レイアウト */
+
+const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
+const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 
 /* ============================================================ State */
 
@@ -54,9 +57,6 @@ const state = {
 
   cameraOn:      false,
   cameraTrack:   null,
-  boardRect:     loadBoardRect(),
-  boardScale:    loadBoardScale(),
-  noBoard:       loadNoBoardFlag(),
 
   uploading:     false,
   cancelBatch:   false,
@@ -68,18 +68,24 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   autoCleanupOldUploads(AUTO_CLEANUP_DAYS).catch(e => console.warn(e));
 
+  // 設定読み込み(Sheets)
   await loadAppConfig();
   populateProjectInfo();
-  refreshHomeCards();
+  refreshChips();
   await refreshOutboxCard();
 
-  initBoardUI();
-
-  // GAS 疎通確認(非同期、結果はインジケータに反映)
+  // GAS 疎通確認
   testGasConnection();
 
-  // スプラッシュ画面(初回 or 撮影者未設定時)
-  showScreen("splash");
+  // カメラ画面に即時遷移
+  showScreen("camera");
+  await startCameraFlow();
+  renderBoard();
+
+  // 撮影者が未設定なら、起動時に1回だけ聞く
+  if (!state.photographer) {
+    setTimeout(pickPhotographer, 400);
+  }
 });
 
 /* ============================================================ GAS 疎通 */
@@ -87,7 +93,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 async function testGasConnection() {
   if (!GAS_WEB_APP_URL) {
     setAuthIndicator(false);
-    console.warn("GAS_WEB_APP_URL が未設定です");
     return;
   }
   try {
@@ -95,26 +100,20 @@ async function testGasConnection() {
     if (r && r.ok) {
       state.gasReady = true;
       setAuthIndicator(true);
-      console.log("GAS 接続 OK:", r);
     } else {
       state.gasReady = false;
       setAuthIndicator(false);
-      console.warn("GAS 応答エラー:", r);
     }
   } catch (e) {
     state.gasReady = false;
     setAuthIndicator(false);
-    console.warn("GAS 接続失敗:", e);
   }
 }
 
 /* ============================================================ 設定読み込み */
 
 async function loadAppConfig({ forceFresh = false } = {}) {
-  if (!SHEETS_ID) {
-    console.warn("SHEETS_ID 未設定");
-    return;
-  }
+  if (!SHEETS_ID) return;
   try {
     if (forceFresh) showLoading("設定を再読み込み中…");
     const cfg = await readAllConfig();
@@ -132,7 +131,6 @@ async function loadAppConfig({ forceFresh = false } = {}) {
     });
     if (forceFresh) toastSuccess("Sheets から設定を読み込みました");
   } catch (e) {
-    console.warn("Sheets 読み込み失敗:", e);
     const cached = loadConfigCache();
     if (cached && cached.cfg) {
       state.project   = { ...FALLBACK_PROJECT, ...cached.cfg.project };
@@ -154,37 +152,40 @@ async function loadAppConfig({ forceFresh = false } = {}) {
 async function reloadAppConfig() {
   await loadAppConfig({ forceFresh: true });
   populateProjectInfo();
-  refreshHomeCards();
+  refreshChips();
+  renderBoard();
 }
 
 /* ============================================================ 表示 */
 
 function populateProjectInfo() {
-  $("#projName").textContent     = state.project.name     || "(工事名未設定)";
+  // 隠し要素に保持(他から参照用)
+  $("#projName").textContent     = state.project.name     || "";
   $("#projNumber").textContent   = state.project.number   || "";
   $("#projLocation").textContent = state.project.location || "";
   $("#projCompany").textContent  = state.project.company  || "";
   $("#appVersion").textContent   = "v" + APP_VERSION;
+
   const vm = $("#appVersionMenu"); if (vm) vm.textContent = "v" + APP_VERSION;
-  const numEl = $("#projNumberHome"); if (numEl) numEl.textContent = state.project.number || "";
+
   const srcEl = $("#configSource");
   if (srcEl) {
     const map = { sheets: "Sheets から読み込み済み", cache: "オフライン(前回値)", fallback: "初期値" };
     srcEl.textContent = map[state.configSource] || "";
     srcEl.classList.toggle("warn", state.configSource !== "sheets");
   }
+
+  const photogShow = $("#menuPhotogShow");
+  if (photogShow) photogShow.textContent = state.photographer ? `撮影者: ${state.photographer}` : "撮影者: 未設定";
 }
 
-function refreshHomeCards() {
-  $("#cardBuildingVal").textContent = state.building || "未選択";
-  $("#cardBuildingVal").classList.toggle("placeholder", !state.building);
-  $("#cardRoomVal").textContent = state.room || "未選択";
-  $("#cardRoomVal").classList.toggle("placeholder", !state.room);
-  $("#cardFixtureVal").textContent = state.fixture || "未選択";
-  $("#cardFixtureVal").classList.toggle("placeholder", !state.fixture);
-  $("#cardStageVal").textContent = state.stage || "未選択";
-  $("#cardStageVal").classList.toggle("placeholder", !state.stage);
+function refreshChips() {
+  setChip("Building", state.building);
+  setChip("Room",     state.room);
+  setChip("Fixture",  state.fixture);
+  setChip("Stage",    state.stage);
 
+  // 次の連番ヒント
   const roomKey = makeRoomKey(state.building, state.room);
   if (roomKey) {
     const next = peekSeq(roomKey, todayYmd()) + 1;
@@ -193,13 +194,27 @@ function refreshHomeCards() {
     $("#nextSeqHint").textContent = "棟と部屋を選択してください";
   }
 
+  // 撮影ボタンの活性化
   const ready = !!(state.building && state.room && state.fixture && state.stage);
-  $("#btnGoCamera").disabled = !ready;
+  $("#btnShoot").disabled = !ready;
+}
+
+function setChip(key, value) {
+  const valEl = $(`#chip${key}Val`);
+  const chipEl = $(`#chip${key}`);
+  if (!valEl || !chipEl) return;
+  if (value) {
+    valEl.textContent = value;
+    chipEl.classList.remove("empty");
+  } else {
+    valEl.textContent = "—";
+    chipEl.classList.add("empty");
+  }
 }
 
 async function refreshOutboxCard() {
   let count = 0;
-  try { count = await countPending(); } catch (e) { console.warn(e); }
+  try { count = await countPending(); } catch (e) {}
   const card = $("#outboxCard");
   const cnt  = $("#outboxCount");
   if (!card || !cnt) return;
@@ -212,73 +227,55 @@ async function refreshOutboxCard() {
 /* ============================================================ Events */
 
 function initEvents() {
-  $("#btnStart").addEventListener("click", onStart);
+  // チップ
+  $("#chipBuilding").addEventListener("click", pickBuilding);
+  $("#chipRoom").addEventListener("click", pickRoom);
+  $("#chipFixture").addEventListener("click", pickFixture);
+  $("#chipStage").addEventListener("click", pickStage);
 
-  $("#cardBuilding").addEventListener("click", pickBuilding);
-  $("#cardRoom").addEventListener("click", pickRoom);
-  $("#cardFixture").addEventListener("click", pickFixture);
-  $("#cardStage").addEventListener("click", pickStage);
-  $("#btnGoCamera").addEventListener("click", goCamera);
+  // 撮影
+  $("#btnShoot").addEventListener("click", onShoot);
+  $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
+
+  // 未送信
   $("#outboxCard").addEventListener("click", openOutbox);
 
+  // メニュー
   $("#btnMenu").addEventListener("click", openMenu);
   $$("[data-close-menu]").forEach(el => el.addEventListener("click", closeMenu));
-  $("#menuChangePhoto").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
-  const reloadBtn = $("#menuReloadConfig");
-  if (reloadBtn) reloadBtn.addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
-  const testBtn = $("#menuTestGas");
-  if (testBtn) testBtn.addEventListener("click", async () => { closeMenu(); await onTestGas(); });
+  $("#menuPhotographer").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
+  $("#menuReloadConfig").addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
+  $("#menuTestGas").addEventListener("click", async () => { closeMenu(); await onTestGas(); });
+  $("#menuOutbox").addEventListener("click", () => { closeMenu(); openOutbox(); });
 
+  // 認証ドット
   $("#authStatusBtn").addEventListener("click", onAuthDotClick);
 
-  $("#btnCameraBack").addEventListener("click", leaveCamera);
-  $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
-  $("#btnShoot").addEventListener("click", () => onShoot(false));
-  $("#btnShootHQ").addEventListener("click", () => onShoot(true));
-
-  $("#boardSizeRange").addEventListener("input", onBoardSizeChange);
-  $("#boardNoBoard").addEventListener("change", onNoBoardChange);
-
-  ["boardProjName", "boardPlace", "boardFixture", "boardStage", "boardCompany"].forEach(id => {
-    $("#" + id).addEventListener("input", renderBoard);
+  // Outbox 画面
+  $("#btnOutboxBack").addEventListener("click", async () => {
+    showScreen("camera");
+    refreshChips();
+    refreshOutboxCard();
+    if (!state.cameraOn) await startCameraFlow();
+    renderBoard();
   });
-
-  $$(".bfs[data-step]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const k = btn.dataset.step;
-      const d = parseFloat(btn.dataset.d);
-      onLineScaleChange(k, d);
-    });
-  });
-
-  $("#btnOutboxBack").addEventListener("click", () => { showScreen("home"); refreshOutboxCard(); refreshHomeCards(); });
   $("#btnUploadAll").addEventListener("click", uploadAllPending);
   $("#btnRefreshOutbox").addEventListener("click", () => renderOutbox());
 
-  initBoardDrag();
-
+  // ライフサイクル
   window.addEventListener("pagehide", () => { stopCamera(); revokeAllObjectUrls(); });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && state.cameraOn) stopCamera();
+    else if (document.visibilityState === "visible" && !state.cameraOn) startCameraFlow();
   });
-  window.addEventListener("resize", () => { layoutBoard(); });
+  window.addEventListener("resize", () => { renderBoard(); });
 }
 
-/* ============================================================ スタート */
-
-async function onStart() {
-  showScreen("home");
-  refreshHomeCards();
-  refreshOutboxCard();
-  if (!state.photographer) setTimeout(pickPhotographer, 200);
-}
+/* ============================================================ GAS テスト */
 
 async function onAuthDotClick() {
-  if (state.gasReady) toastInfo("GAS 接続 OK(緑)");
-  else {
-    toastInfo("GAS 接続を確認中…");
-    await testGasConnection();
-  }
+  if (state.gasReady) toastInfo("GAS 接続 OK");
+  else await testGasConnection();
 }
 
 async function onTestGas() {
@@ -318,6 +315,8 @@ async function pickPhotographer() {
   if (v) {
     state.photographer = v;
     setPhotographer(v);
+    const photogShow = $("#menuPhotogShow");
+    if (photogShow) photogShow.textContent = `撮影者: ${v}`;
     toastInfo(`撮影者を「${v}」に設定`);
   }
 }
@@ -332,6 +331,8 @@ async function managePhotographers() {
   if (v) {
     removeKnownPhotographer(v);
     if (state.photographer === v) { state.photographer = ""; setPhotographer(""); }
+    const photogShow = $("#menuPhotogShow");
+    if (photogShow) photogShow.textContent = state.photographer ? `撮影者: ${state.photographer}` : "撮影者: 未設定";
   }
 }
 
@@ -347,7 +348,8 @@ async function pickBuilding() {
     state.building = v;
     setLastBuilding(v);
     state.room = ""; setLastRoom("");
-    refreshHomeCards();
+    refreshChips();
+    renderBoard();
   }
 }
 
@@ -373,7 +375,8 @@ async function pickRoom() {
     }
     state.room = v;
     setLastRoom(v);
-    refreshHomeCards();
+    refreshChips();
+    renderBoard();
   }
 }
 
@@ -387,7 +390,8 @@ async function manageCustomRooms(building) {
   if (v) {
     removeCustomRoom(building, v);
     if (state.room === v) { state.room = ""; setLastRoom(""); }
-    refreshHomeCards();
+    refreshChips();
+    renderBoard();
   }
 }
 
@@ -402,7 +406,8 @@ async function pickFixture() {
   if (v) {
     state.fixture = v;
     setLastFixture(v);
-    refreshHomeCards();
+    refreshChips();
+    renderBoard();
   }
 }
 
@@ -417,7 +422,8 @@ async function pickStage() {
   if (v) {
     state.stage = v;
     setLastStage(v);
-    refreshHomeCards();
+    refreshChips();
+    renderBoard();
   }
 }
 
@@ -427,40 +433,6 @@ function openMenu()  { $("#menu").classList.add("open"); }
 function closeMenu() { $("#menu").classList.remove("open"); }
 
 /* ============================================================ Camera */
-
-async function goCamera() {
-  if (!(state.building && state.room && state.fixture && state.stage)) {
-    toastError("棟・部屋・照明器具・施工段階を全て選んでください");
-    return;
-  }
-  if (!state.photographer) {
-    toastInfo("最初に撮影者を設定してください");
-    await pickPhotographer();
-    if (!state.photographer) return;
-  }
-  if (await isAtLimit(PENDING_LIMIT)) {
-    toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。`);
-    openOutbox();
-    return;
-  }
-
-  $("#boardProjName").value = state.project.name || "";
-  $("#boardPlace").value    = `${state.building}-${state.room}`;
-  $("#boardFixture").value  = state.fixture || "";
-  $("#boardStage").value    = state.stage || "";
-  $("#boardCompany").value  = state.project.company || "";
-
-  $("#boardNoBoard").checked = state.noBoard;
-  $("#camSitebarText").textContent = `${state.project.name || ""} ／ ${state.building}-${state.room}`;
-
-  showScreen("camera");
-  await startCameraFlow();
-  renderBoard();
-
-  const sz = Math.round(state.boardRect.w * 100);
-  $("#boardSizeRange").value = sz;
-  $("#boardSizeVal").textContent = sz + "%";
-}
 
 async function startCameraFlow() {
   const video = $("#videoEl");
@@ -472,22 +444,12 @@ async function startCameraFlow() {
     });
     state.cameraOn = true;
     state.cameraTrack = track;
-    setTimeout(layoutBoard, 60);
+    setTimeout(renderBoard, 80);
   } catch (e) {
     state.cameraOn = false;
     state.cameraTrack = null;
     toastError(e.message);
-    showScreen("home");
   }
-}
-
-function leaveCamera() {
-  stopCamera();
-  state.cameraOn = false;
-  state.cameraTrack = null;
-  showScreen("home");
-  refreshHomeCards();
-  refreshOutboxCard();
 }
 
 async function onSwitchCamera() {
@@ -495,50 +457,28 @@ async function onSwitchCamera() {
   try {
     const track = await switchCamera($("#videoEl"));
     state.cameraTrack = track;
-    setTimeout(layoutBoard, 60);
+    setTimeout(renderBoard, 80);
   } catch (e) { toastError(e.message); }
 }
 
-/* ============================================================ 黒板 UI */
-
-function initBoardUI() {
-  const sz = Math.round(state.boardRect.w * 100);
-  const range = $("#boardSizeRange");
-  if (range) {
-    range.value = sz;
-    $("#boardSizeVal").textContent = sz + "%";
-  }
-}
-
-function onBoardSizeChange(e) {
-  const v = parseInt(e.target.value, 10);
-  state.boardRect.w = v / 100;
-  $("#boardSizeVal").textContent = v + "%";
-  saveBoardRect(state.boardRect);
-  layoutBoard();
-}
-
-function onNoBoardChange(e) {
-  state.noBoard = e.target.checked;
-  saveNoBoardFlag(state.noBoard);
-}
-
-function onLineScaleChange(k, d) {
-  state.boardScale[k] = Math.max(0.5, Math.min(1.6, (state.boardScale[k] || 1) + d));
-  saveBoardScale(state.boardScale);
-  layoutBoard();
-}
+/* ============================================================ 黒板表示 */
 
 function renderBoard() {
   const ov = $("#boardOverlay");
   if (!ov) return;
-  const v = (id) => ($("#" + id) ? $("#" + id).value : "");
+
+  const projName = state.project.name || "";
+  const place    = (state.building && state.room) ? `${state.building}-${state.room}` : "";
+  const fixture  = state.fixture || "";
+  const stage    = state.stage || "";
+  const company  = state.project.company || "";
+
   ov.innerHTML =
-    `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l" data-k="la">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(v("boardProjName"))}</span></div></div>` +
-    `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l" data-k="lb">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(v("boardPlace"))}</span></div></div>` +
-    `<div class="bov-fr"  style="height:${pct(BROWH.c)}"><span class="bv-t" data-k="c">${esc(v("boardFixture"))}</span></div>` +
-    `<div class="bov-fr"  style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(v("boardStage"))}</span></div>` +
-    `<div class="bov-co"  style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(v("boardCompany"))}</span></div>`;
+    `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(projName)}</span></div></div>` +
+    `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(place)}</span></div></div>` +
+    `<div class="bov-lf"  style="height:${pct(BROWH.c)}"><span class="bv-t" data-k="c">${esc(fixture)}</span></div>` +
+    `<div class="bov-lf"  style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(stage)}</span></div>` +
+    `<div class="bov-co"  style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(company)}</span></div>`;
   ov.style.display = "block";
   layoutBoard();
 }
@@ -550,42 +490,41 @@ function layoutBoard() {
   const W = wrap.clientWidth, H = wrap.clientHeight;
   if (!W || !H) return;
 
-  let bw = W * state.boardRect.w;
+  let bw = W * FIXED_BOARD_RECT.w;
   let bh = bw * BOARD_HR;
   if (bh > H * 0.9) {
     bh = H * 0.9;
     bw = bh / BOARD_HR;
-    state.boardRect.w = bw / W;
   }
-  let x = clamp(state.boardRect.x, 0, 1 - bw / W);
-  let y = clamp(state.boardRect.y, 0, 1 - bh / H);
-  state.boardRect.x = x;
-  state.boardRect.y = y;
+  const x = 0;                 // 左端
+  const y = Math.max(0, H - bh);  // 下端
 
-  ov.style.left   = (x * W) + "px";
-  ov.style.top    = (y * H) + "px";
+  ov.style.left   = "0px";
+  ov.style.top    = y + "px";
   ov.style.width  = bw + "px";
   ov.style.height = bh + "px";
 
-  setRowFont(ov, ".bv-l[data-k='la']", "la", BROWH.a, 0.4);
-  setRowFont(ov, ".bv-l[data-k='lb']", "lb", BROWH.b, 0.4);
-  setRowFont(ov, ".bv-t[data-k='a']",  "a",  BROWH.a, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='b']",  "b",  BROWH.b, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='c']",  "c",  BROWH.c, 0.55, bw);
-  setRowFont(ov, ".bv-t[data-k='d']",  "d",  BROWH.d, 0.55, bw);
-  setRowFont(ov, ".bv-t[data-k='e']",  "e",  BROWH.e, 0.45, bw);
+  // 各文字のフォントサイズを行高に合わせる
+  setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
+  setRowFont(ov, ".bv-t[data-k='a']", "a", BROWH.a, 0.6, bw);
+  setRowFont(ov, ".bv-t[data-k='b']", "b", BROWH.b, 0.6, bw);
+  setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.5, bw);  // 少し小さく
+  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.5, bw);
+  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.62, bw); // 大きめ
 
-  function setRowFont(rootEl, sel, k, frac, factor, parentW) {
-    const el = rootEl.querySelector(sel);
-    if (!el) return;
+  function setRowFont(rootEl, sel, _k, frac, factor, parentW) {
+    const els = rootEl.querySelectorAll(sel);
+    if (!els || els.length === 0) return;
     const rh = bh * frac;
-    const fs = Math.max(6, rh * factor * (state.boardScale[k] || 1));
-    el.style.fontSize = Math.floor(fs) + "px";
-    el.style.transform = "";
-    if (parentW) {
-      const avail = (el.parentNode ? el.parentNode.clientWidth : bw) - 2;
-      if (avail > 0 && el.scrollWidth > avail) {
-        el.style.transform = "scaleX(" + (avail / el.scrollWidth) + ")";
+    const fs = Math.max(6, rh * factor);
+    for (const el of els) {
+      el.style.fontSize = Math.floor(fs) + "px";
+      el.style.transform = "";
+      if (parentW) {
+        const avail = (el.parentNode ? el.parentNode.clientWidth : bw) - 2;
+        if (avail > 0 && el.scrollWidth > avail) {
+          el.style.transform = "scaleX(" + (avail / el.scrollWidth) + ")";
+        }
       }
     }
   }
@@ -593,97 +532,58 @@ function layoutBoard() {
 
 function pct(v) { return (v * 100).toFixed(2) + "%"; }
 
-function initBoardDrag() {
-  document.addEventListener("pointerdown", (e) => {
-    const ov = $("#boardOverlay");
-    if (!ov) return;
-    if (e.target !== ov && !ov.contains(e.target)) return;
-    const wrap = $("#bcamWrap");
-    if (!wrap) return;
-    e.preventDefault();
-
-    const W = wrap.clientWidth, H = wrap.clientHeight;
-    const sx = e.clientX, sy = e.clientY;
-    const ox = state.boardRect.x, oy = state.boardRect.y;
-
-    function mv(ev) {
-      state.boardRect.x = ox + (ev.clientX - sx) / W;
-      state.boardRect.y = oy + (ev.clientY - sy) / H;
-      layoutBoard();
-    }
-    function up() {
-      document.removeEventListener("pointermove", mv);
-      document.removeEventListener("pointerup", up);
-      saveBoardRect(state.boardRect);
-    }
-    document.addEventListener("pointermove", mv);
-    document.addEventListener("pointerup", up);
-  });
-}
-
 function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /* ============================================================ 撮影 */
 
-async function onShoot(hq) {
+async function onShoot() {
+  if (!(state.building && state.room && state.fixture && state.stage)) {
+    toastError("棟・部屋・照明器具・施工段階を全て選んでください");
+    return;
+  }
+  if (!state.photographer) {
+    toastInfo("最初に撮影者を設定してください");
+    await pickPhotographer();
+    if (!state.photographer) return;
+  }
   if (!state.cameraOn) { toastError("カメラが起動していません"); return; }
   if (state.uploading) { toastInfo("処理中です…"); return; }
+
   if (await isAtLimit(PENDING_LIMIT)) {
     toastError(`未送信が ${PENDING_LIMIT} 枚に達しています。`);
     return;
   }
 
   state.uploading = true;
-  const btn = hq ? $("#btnShootHQ") : $("#btnShoot");
+  const btn = $("#btnShoot");
   btn.disabled = true;
   const origText = btn.textContent;
   btn.textContent = "処理中…";
 
   try {
     const video = $("#videoEl");
-    let source;
-    if (hq && state.cameraTrack && typeof ImageCapture !== "undefined") {
-      try {
-        const ic = new ImageCapture(state.cameraTrack);
-        try {
-          const blob = await ic.takePhoto();
-          source = await blobToImage(blob);
-        } catch (e1) {
-          try { source = await ic.grabFrame(); }
-          catch (e2) {
-            console.warn("ImageCapture 失敗、通常撮影");
-            source = video;
-          }
-        }
-      } catch (e) { source = video; }
-    } else {
-      source = video;
-    }
+    const source = video;
 
-    const v = (id) => $("#" + id).value;
     const labels = { a: "工事名", b: "場所" };
     const values = {
-      a: v("boardProjName"),
-      b: v("boardPlace"),
-      c: v("boardFixture"),
-      d: v("boardStage"),
-      e: v("boardCompany"),
+      a: state.project.name || "",
+      b: `${state.building}-${state.room}`,
+      c: state.fixture || "",
+      d: state.stage || "",
+      e: state.project.company || "",
     };
 
-    // GAS 経由送信のため、長辺を制限して通信量を抑える
     const result = await composePhoto(source, {
-      boardRect:  { ...state.boardRect },
-      lineScale:  { ...state.boardScale },
+      boardRect:   FIXED_BOARD_RECT,
       labels, values,
-      jpegQuality: hq ? JPEG_QUALITY : 0.85,
+      jpegQuality: 0.88,
       cropToRatio: true,
-      alsoNoBoard: state.noBoard,
-      maxLongSide: hq ? 2400 : 1600,
+      alsoNoBoard: ALWAYS_NO_BOARD,
+      maxLongSide: 1920,
     });
 
     shutterSound();
@@ -704,15 +604,12 @@ async function onShoot(hq) {
     const fileNameMain = buildFilename(FILENAME_TEMPLATE, board);
     const fileNameNB   = fileNameMain.replace(/\.jpe?g$/i, "_nb.jpg");
 
-    // IndexedDB に保存(オフライン耐性)
+    // IndexedDB に2枚保存
     const photoIdMain = await addPhoto({
-      blob: result.withBoard.blob,
-      board,
-      fileName: fileNameMain,
-      roomKey,
+      blob: result.withBoard.blob, board, fileName: fileNameMain, roomKey,
     });
     let photoIdNB = null;
-    if (state.noBoard && result.noBoard) {
+    if (result.noBoard) {
       photoIdNB = await addPhoto({
         blob: result.noBoard.blob,
         board: { ...board, isNoBoard: true },
@@ -725,10 +622,13 @@ async function onShoot(hq) {
     try {
       await uploadOne(photoIdMain);
       if (photoIdNB) await uploadOne(photoIdNB);
-      toastSuccess(`Drive に保存${photoIdNB ? " (2枚)" : ""}: ${fileNameMain}`);
+      toastSuccess(`Drive に保存 (黒板あり+なし 2枚): ${fileNameMain}`);
     } catch (e) {
       toastError(`送信失敗(未送信として保持): ${e.message}`);
     }
+
+    // 次の連番ヒント更新
+    refreshChips();
   } catch (e) {
     console.error(e);
     toastError("撮影失敗: " + e.message);
@@ -764,17 +664,7 @@ function burst(actx, at, dur, freq, q, vol) {
   nsrc.start(at);
 }
 
-function blobToImage(blob) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(blob);
-    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像読み込み失敗")); };
-    img.src = url;
-  });
-}
-
-/* ============================================================ アップロード(GAS 経由) */
+/* ============================================================ Upload */
 
 async function uploadOne(photoId) {
   const photo = await getPhoto(photoId);
@@ -783,7 +673,7 @@ async function uploadOne(photoId) {
 
   await markUploading(photoId);
 
-  const folderName = photo.roomKey;  // 例: "A1-101"
+  const folderName = photo.roomKey;
   const proj = photo.board.project || state.project;
 
   const meta = {
@@ -809,7 +699,6 @@ async function uploadOne(photoId) {
       mimeType: "image/jpeg",
       meta,
     });
-    // no-cors なので fileId は取れないが、送信成功とみなす
     await markUploaded(photoId, result.fileId || "");
     return result;
   } catch (e) {

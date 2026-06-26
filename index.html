@@ -33,77 +33,44 @@
 
 <main class="app-main" id="appMain">
 
-  <!-- ========== スプラッシュ ========== -->
-  <section class="screen active" data-screen="splash">
-    <div class="splash-wrap">
-      <div class="splash-icon" aria-hidden="true">
-        <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="#0d9aa0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 22h6l4-6h16l4 6h6a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V26a4 4 0 0 1 4-4Z"/>
-          <circle cx="32" cy="34" r="9"/>
-          <circle cx="32" cy="34" r="4" fill="#0d9aa0"/>
-        </svg>
-      </div>
+  <!-- ========== カメラ画面(起動時から表示) ========== -->
+  <section class="screen active camera-screen" data-screen="camera">
 
-      <h2 class="splash-title" id="projName">県営北方住宅...</h2>
-      <p class="splash-sub">
-        <span id="projNumber">県住工第1号</span>
-        ・
-        <span id="projLocation">本巣郡北方町</span>
-      </p>
-      <p class="splash-company"><span id="projCompany">河口電機株式会社</span></p>
+    <!-- 選択チップ 4 つ -->
+    <div class="chip-row" id="chipRow">
+      <button class="chip" id="chipBuilding" type="button">
+        <span class="chip-label">棟</span>
+        <span class="chip-value" id="chipBuildingVal">—</span>
+      </button>
+      <button class="chip" id="chipRoom" type="button">
+        <span class="chip-label">部屋</span>
+        <span class="chip-value" id="chipRoomVal">—</span>
+      </button>
+      <button class="chip" id="chipFixture" type="button">
+        <span class="chip-label">照明器具</span>
+        <span class="chip-value" id="chipFixtureVal">—</span>
+      </button>
+      <button class="chip" id="chipStage" type="button">
+        <span class="chip-label">施工段階</span>
+        <span class="chip-value" id="chipStageVal">—</span>
+      </button>
+    </div>
 
-      <div class="splash-actions">
-        <button class="btn btn-primary btn-xl" id="btnStart" type="button">
-          使い始める
+    <!-- カメラビュー + 黒板オーバーレイ -->
+    <div class="bcam-wrap" id="bcamWrap">
+      <video id="videoEl" autoplay playsinline muted></video>
+      <div class="bcam-tools">
+        <button class="bcam-tool" id="btnSwitchCamera" aria-label="カメラ切替" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM12 18a5 5 0 0 1-5-5H5l3-3 3 3H9a3 3 0 0 0 3 3 3 3 0 0 0 0-6"/></svg>
         </button>
       </div>
-      <p class="splash-mode-hint">
-        撮影した写真は会社の Drive に自動保存されます。<br>
-        ログイン操作は不要です。
-      </p>
-
-      <p class="splash-version">小黒板カメラ <span id="appVersion">v1.0.0</span></p>
-    </div>
-  </section>
-
-  <!-- ========== ホーム(選択画面) ========== -->
-  <section class="screen" data-screen="home">
-    <div class="home-project">
-      <span class="hp-num" id="projNumberHome">県住工第1号</span>
-      <span class="hp-name">県営北方住宅 LED 改修</span>
+      <div class="bov-bd" id="boardOverlay" style="display:none;"></div>
     </div>
 
-    <div class="card-group">
-
-      <button class="big-card" id="cardBuilding" type="button">
-        <span class="bc-label">棟</span>
-        <span class="bc-value" id="cardBuildingVal">未選択</span>
-        <span class="bc-chevron" aria-hidden="true">›</span>
-      </button>
-
-      <button class="big-card" id="cardRoom" type="button">
-        <span class="bc-label">部屋</span>
-        <span class="bc-value" id="cardRoomVal">未選択</span>
-        <span class="bc-chevron" aria-hidden="true">›</span>
-      </button>
-
-      <button class="big-card" id="cardFixture" type="button">
-        <span class="bc-label">照明器具</span>
-        <span class="bc-value" id="cardFixtureVal">未選択</span>
-        <span class="bc-chevron" aria-hidden="true">›</span>
-      </button>
-
-      <button class="big-card" id="cardStage" type="button">
-        <span class="bc-label">施工段階</span>
-        <span class="bc-value" id="cardStageVal">未選択</span>
-        <span class="bc-chevron" aria-hidden="true">›</span>
-      </button>
-
-    </div>
-
+    <!-- 次の連番ヒント(小) -->
     <p class="next-hint" id="nextSeqHint"></p>
 
-    <!-- 未送信写真カード(未送信が1枚以上あるとき表示) -->
+    <!-- 未送信カード(あれば表示) -->
     <button class="outbox-card" id="outboxCard" type="button" hidden>
       <div class="oc-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="24" height="24">
@@ -117,95 +84,10 @@
       <span class="oc-chevron" aria-hidden="true">›</span>
     </button>
 
-    <button class="btn btn-primary btn-xl shutter-go" id="btnGoCamera" type="button" disabled>
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-        <path fill="currentColor" d="M9.4 5L8 7H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2h-4l-1.4-2H9.4zM12 17a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/>
-      </svg>
-      カメラを起動
-    </button>
-  </section>
-
-  <!-- ========== カメラ画面(GenCan風) ========== -->
-  <section class="screen camera-screen" data-screen="camera">
-    <div class="cam-head">
-      <button class="cam-back" id="btnCameraBack" type="button">← 戻る</button>
-      <span class="cam-title">小黒板カメラ</span>
-      <div style="width:64px;"></div>
-    </div>
-
-    <div class="cam-sitebar" id="camSitebar">
-      <span>現場:</span>
-      <b id="camSitebarText">—</b>
-    </div>
-
-    <div class="bcam-wrap" id="bcamWrap">
-      <video id="videoEl" autoplay playsinline muted></video>
-      <div class="bcam-tools">
-        <button class="bcam-tool" id="btnSwitchCamera" aria-label="カメラ切替" type="button">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM12 18a5 5 0 0 1-5-5H5l3-3 3 3H9a3 3 0 0 0 3 3 3 3 0 0 0 0-6"/></svg>
-        </button>
-      </div>
-      <div class="bov-bd" id="boardOverlay" style="display:none;"></div>
-      <div class="bcam-zoominfo" id="boardZoomInfo">1.0x</div>
-    </div>
-
-    <div class="bsize-row">
-      <label>黒板の大きさ</label>
-      <input type="range" id="boardSizeRange" min="20" max="55" value="37" />
-      <span class="bsize-val" id="boardSizeVal">37%</span>
-    </div>
-
-    <label class="bchk">
-      <input type="checkbox" id="boardNoBoard" />
-      黒板なしも保存する(黒板あり＋なしの2枚)
-    </label>
-
-    <div class="board-grid" id="boardFormWrap">
-      <div class="brow">
-        <span class="blbl3">工事名</span>
-        <input class="binp" id="boardProjName" placeholder="工事名" />
-        <button class="bfs" data-step="a" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="a" data-d="0.1"  type="button">＋</button>
-      </div>
-      <div class="brow">
-        <span class="blbl3">場所</span>
-        <input class="binp" id="boardPlace" placeholder="場所" />
-        <button class="bfs" data-step="b" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="b" data-d="0.1"  type="button">＋</button>
-      </div>
-      <div class="brow">
-        <span class="blbl3">照明器具</span>
-        <input class="binp" id="boardFixture" placeholder="照明器具(例: a059)" />
-        <button class="bfs" data-step="c" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="c" data-d="0.1"  type="button">＋</button>
-      </div>
-      <div class="brow">
-        <span class="blbl3">施工段階</span>
-        <input class="binp" id="boardStage" placeholder="施工段階(例: 施工前)" />
-        <button class="bfs" data-step="d" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="d" data-d="0.1"  type="button">＋</button>
-      </div>
-      <div class="brow">
-        <span class="blbl3">会社名</span>
-        <input class="binp" id="boardCompany" placeholder="会社名" />
-        <button class="bfs" data-step="e" data-d="-0.1" type="button">−</button>
-        <button class="bfs" data-step="e" data-d="0.1"  type="button">＋</button>
-      </div>
-    </div>
-
-    <p class="enote">
-      黒板はドラッグで位置を移動できます。各行の −／＋ で文字サイズを調整できます。
-    </p>
-
-    <div class="scroll-pad"></div>
-
-    <div class="bshoot-bar" id="boardBarLive">
-      <button class="savebtn hqbtn" id="btnShootHQ" type="button">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.4-2h6l1.4 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3"/></svg>
-        最高画質
-      </button>
+    <!-- 撮影ボタン(下部固定) -->
+    <div class="bshoot-bar">
       <button class="savebtn" id="btnShoot" type="button">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.4-2h6l1.4 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3"/></svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.4-2h6l1.4 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3"/></svg>
         撮影して保存
       </button>
     </div>
@@ -253,13 +135,15 @@
       </button>
     </div>
     <ul class="menu-list">
-      <li><button id="menuChangePhoto" type="button">撮影者を変更</button></li>
+      <li><button id="menuPhotographer" type="button">撮影者を変更</button></li>
       <li><button id="menuReloadConfig" type="button">設定を再読み込み(Sheets)</button></li>
       <li><button id="menuTestGas" type="button">GAS 接続テスト</button></li>
+      <li><button id="menuOutbox" type="button">未送信の写真</button></li>
     </ul>
     <div class="menu-foot">
       <p class="menu-version">小黒板カメラ <span id="appVersionMenu"></span></p>
       <p class="menu-config-source" id="configSource"></p>
+      <p class="menu-photog-show" id="menuPhotogShow"></p>
     </div>
   </div>
 </nav>
@@ -295,6 +179,15 @@
     <div class="spinner" aria-hidden="true"></div>
     <p id="loadingText">処理中…</p>
   </div>
+</div>
+
+<!-- 隠し: 工事情報の値を保持する(画面表示しない) -->
+<div hidden>
+  <span id="projName"></span>
+  <span id="projNumber"></span>
+  <span id="projLocation"></span>
+  <span id="projCompany"></span>
+  <span id="appVersion"></span>
 </div>
 
 <script type="module" src="./js/app.js"></script>
