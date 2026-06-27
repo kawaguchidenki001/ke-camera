@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.6.16 ・ 施工段階3ボタン固定版
+   北方カメラ v1.6.17 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -25,7 +25,7 @@
   --well:      inset 3px 3px 6px #cdd3dc, inset -3px -3px 6px #ffffff;
   --well-soft: inset 2px 2px 5px #d3d9e1, inset -2px -2px 5px #fbfdff;
 
-  --font-jp: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  --font-jp: "Meiryo", "Yu Gothic UI", "Yu Gothic", "Noto Sans JP", sans-serif;
   --font-en: "Manrope", "Hiragino Sans", sans-serif;
 
   --touch-target: 48px;

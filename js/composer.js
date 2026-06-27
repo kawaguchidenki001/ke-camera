@@ -205,7 +205,7 @@ function line(ctx, x1, y1, x2, y2) {
 }
 
 function jpFont() {
-  return `"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo","Noto Sans JP",sans-serif`;
+  return `"Meiryo","Yu Gothic UI","Yu Gothic","Noto Sans JP",sans-serif`;
 }
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }

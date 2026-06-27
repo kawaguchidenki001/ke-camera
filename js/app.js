@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.16 - 施工段階3ボタン固定版
+// 北方カメラ v1.6.17 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.16";
+} from "./config.js?v=1.6.17";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.16";
+} from "./storage.js?v=1.6.17";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.16";
-import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch } from "./camera.js?v=1.6.16";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.16";
-import { readAllConfig } from "./sheets.js?v=1.6.16";
+} from "./ui.js?v=1.6.17";
+import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch } from "./camera.js?v=1.6.17";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.17";
+import { readAllConfig } from "./sheets.js?v=1.6.17";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.16";
+} from "./gas-uploader.js?v=1.6.17";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.16";
+} from "./photoStore.js?v=1.6.17";
 
 const { $, $$ } = dom;
 
@@ -400,7 +400,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.16");
+  url.searchParams.set("v", "1.6.17");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }

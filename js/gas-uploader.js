@@ -1,8 +1,8 @@
 // js/gas-uploader.js
 // GAS Web App と通信
-// v1.6.16: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
+// v1.6.17: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.16";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.6.17";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
@@ -123,7 +123,7 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
   log(`送信開始: ${fileName} (${Math.round(base64.length/1024)}KB)`);
 
-  // v1.6.16: 画像本体は hidden iframe + form POST で送る。
+  // v1.6.17: 画像本体は hidden iframe + form POST で送る。
   // 一部ブラウザでは Drive 保存後の postMessage が親画面へ届かないため、
   // requestId を使って GAS 側の保存結果を JSONP で確認する。
   const resp = await uploadViaGasFormPost({
