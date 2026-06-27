@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.6.17: 撮影後バックグラウンド送信版)
+// 北方カメラ - 設定値(v1.6.18: 画質向上版)
 
-export const APP_VERSION = "1.6.17";
+export const APP_VERSION = "1.6.18";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -77,7 +77,7 @@ export const FALLBACK_STAGES = Object.freeze([
 // ファイル
 // ============================================================
 export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{fixture}_{stage}_{seq}.jpg";
-export const JPEG_QUALITY = 0.76;  // v1.6.17: 高速送信用に圧縮率を上げる
+export const JPEG_QUALITY = 0.82;  // v1.6.18: 画質向上
 export const PENDING_LIMIT = 100;
 export const PENDING_WARN  = 80;
 export const AUTO_CLEANUP_DAYS = 7;
@@ -87,8 +87,8 @@ export const AUTO_CLEANUP_DAYS = 7;
 // ============================================================
 export const CAMERA_DEFAULTS = Object.freeze({
   facing: "environment",
-  width:  1280,
-  height: 960,
+  width:  1600,
+  height: 1200,
 });
 
 export const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;

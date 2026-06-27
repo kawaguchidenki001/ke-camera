@@ -6,7 +6,7 @@ import {
   SHEETS_VALUES_ENDPOINT,
   SHEET_RANGE_PROJECT, SHEET_RANGE_BUILDING,
   SHEET_RANGE_FIXTURES, SHEET_RANGE_STAGES,
-} from "./config.js?v=1.6.17";
+} from "./config.js?v=1.6.18";
 
 /* ============================================================ Sheets API 共通 */
 

@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.17 - 施工段階3ボタン固定版
+// 北方カメラ v1.6.18 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.17";
+} from "./config.js?v=1.6.18";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.17";
+} from "./storage.js?v=1.6.18";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.17";
-import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch } from "./camera.js?v=1.6.17";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.17";
-import { readAllConfig } from "./sheets.js?v=1.6.17";
+} from "./ui.js?v=1.6.18";
+import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch } from "./camera.js?v=1.6.18";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.18";
+import { readAllConfig } from "./sheets.js?v=1.6.18";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.17";
+} from "./gas-uploader.js?v=1.6.18";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.17";
+} from "./photoStore.js?v=1.6.18";
 
 const { $, $$ } = dom;
 
@@ -42,7 +42,7 @@ const { $, $$ } = dom;
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
 const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
-const FAST_PHOTO_MAX_LONG_SIDE = 1280;  // v1.6.11: 送信高速化
+const FAST_PHOTO_MAX_LONG_SIDE = 1600;  // v1.6.18: 画質向上
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
 const AFTER_EACH_UPLOAD_PAUSE_MS_MOBILE = 1800;
@@ -400,7 +400,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.17");
+  url.searchParams.set("v", "1.6.18");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -736,11 +736,34 @@ function layoutBoard() {
 
   // 各文字のフォントサイズを行高に合わせる
   setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
-  setRowFont(ov, ".bv-t[data-k='a']", "a", BROWH.a, 0.6, bw);
-  setRowFont(ov, ".bv-t[data-k='b']", "b", BROWH.b, 0.6, bw);
+  setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
   setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.72, bw); // 施工段階は中央で大きく
   setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
+
+  function setSharedRowFont(rootEl, selectors, frac, factor) {
+    const items = selectors
+      .map(sel => rootEl.querySelector(sel))
+      .filter(Boolean);
+    if (items.length === 0) return;
+    const rh = bh * frac;
+    let fs = Math.floor(Math.max(6, rh * factor));
+    const minFs = 8;
+    for (; fs >= minFs; fs--) {
+      let ok = true;
+      for (const el of items) {
+        el.style.fontSize = fs + "px";
+        el.style.transform = "";
+        const avail = (el.parentNode ? el.parentNode.clientWidth : bw) - 2;
+        if (avail > 0 && el.scrollWidth > avail) { ok = false; break; }
+      }
+      if (ok) break;
+    }
+    for (const el of items) {
+      el.style.fontSize = Math.max(fs, minFs) + "px";
+      el.style.transform = "";
+    }
+  }
 
   function setRowFont(rootEl, sel, _k, frac, factor, parentW) {
     const els = rootEl.querySelectorAll(sel);
@@ -816,7 +839,7 @@ async function onShoot() {
     const result = await composePhoto(source, {
       boardRect:   FIXED_BOARD_RECT,
       labels, values,
-      jpegQuality: JPEG_QUALITY || 0.76,
+      jpegQuality: JPEG_QUALITY || 0.82,
       cropToRatio: true,
       alsoNoBoard: ALWAYS_NO_BOARD,
       maxLongSide: FAST_PHOTO_MAX_LONG_SIDE,

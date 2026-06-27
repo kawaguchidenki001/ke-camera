@@ -1,5 +1,5 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(v1.6.12 仕様)
+// GenCan風 黒板焼き込み(v1.6.18 仕様)
 // 行構成:
 //   1) 工事名(ラベル+値、下罫線あり)
 //   2) 場所(ラベル+値、下罫線あり)
@@ -120,9 +120,13 @@ function drawBoard(canvas, { boardRect, labels, values }) {
   ctx.textBaseline = "middle";
 
   let yy = by;
+  const sharedTopFs = fitSharedTopValueFontSize([
+    values.a || "",
+    values.b || "",
+  ], bh * BROWH.a, bw - labelW - pad * 2);
 
   // 行1,2: ラベル+値、下罫線+左ラベル枠
-  function rowLV(label, value, hf) {
+  function rowLV(label, value, hf, forcedFs = null) {
     const rh = bh * hf;
     // 下罫線
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
@@ -138,7 +142,7 @@ function drawBoard(canvas, { boardRect, labels, values }) {
     ctx.fillText(label, bx + labelW / 2, yy + rh / 2, labelW - 6);
 
     // 値
-    const fs = Math.max(10, Math.floor(rh * 0.6));
+    const fs = forcedFs || Math.max(10, Math.floor(rh * 0.6));
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "left";
     if (value) {
@@ -188,8 +192,8 @@ function drawBoard(canvas, { boardRect, labels, values }) {
   }
 
   // 5 行を描画
-  rowLV(labels.a || "工事名", values.a || "", BROWH.a);
-  rowLV(labels.b || "場所",   values.b || "", BROWH.b);
+  rowLV(labels.a || "工事名", values.a || "", BROWH.a, sharedTopFs);
+  rowLV(labels.b || "場所",   values.b || "", BROWH.b, sharedTopFs);
   rowLeft(values.c || "", BROWH.c);
   rowStage(values.d || "", BROWH.d);
   rowCompany(values.e || "", BROWH.e);
@@ -203,6 +207,19 @@ function line(ctx, x1, y1, x2, y2) {
   ctx.lineTo(x2, y2);
   ctx.stroke();
 }
+
+function fitSharedTopValueFontSize(values, rowHeight, maxWidth) {
+  const start = Math.max(10, Math.floor(rowHeight * 0.6));
+  const min = 8;
+  for (let fs = start; fs >= min; fs--) {
+    ctxFontProbe.font = "bold " + fs + "px " + jpFont();
+    const ok = values.every(v => ctxFontProbe.measureText(String(v || "")).width <= maxWidth);
+    if (ok) return fs;
+  }
+  return min;
+}
+
+const ctxFontProbe = document.createElement("canvas").getContext("2d");
 
 function jpFont() {
   return `"Meiryo","Yu Gothic UI","Yu Gothic","Noto Sans JP",sans-serif`;
