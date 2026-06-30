@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.6.18 - 施工段階3ボタン固定版
+// 北方カメラ v1.6.19 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.18";
+} from "./config.js?v=1.6.19";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +16,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.18";
+} from "./storage.js?v=1.6.19";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.18";
-import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch } from "./camera.js?v=1.6.18";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.18";
-import { readAllConfig } from "./sheets.js?v=1.6.18";
+} from "./ui.js?v=1.6.19";
+import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom } from "./camera.js?v=1.6.19";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.19";
+import { readAllConfig } from "./sheets.js?v=1.6.19";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.18";
+} from "./gas-uploader.js?v=1.6.19";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.18";
+} from "./photoStore.js?v=1.6.19";
 
 const { $, $$ } = dom;
 
@@ -42,7 +42,7 @@ const { $, $$ } = dom;
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
 const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
-const FAST_PHOTO_MAX_LONG_SIDE = 1600;  // v1.6.18: 画質向上
+const FAST_PHOTO_MAX_LONG_SIDE = 1600;  // v1.6.19: 画質向上
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
 const AFTER_EACH_UPLOAD_PAUSE_MS_MOBILE = 1800;
@@ -85,6 +85,13 @@ const state = {
   cameraTrack:   null,
   torchSupported: false,
   torchOn:        false,
+  zoomMode:       "digital",
+  zoom:           1,
+  zoomMin:        1,
+  zoomMax:        4,
+  zoomStep:       0.1,
+  pinchStartDist: 0,
+  pinchStartZoom: 1,
 
   uploading:     false,   // 送信中(バックグラウンド/未送信一括)
   capturing:     false,   // 撮影画像作成・端末保存中だけ true
@@ -329,6 +336,7 @@ function initEvents() {
   $("#btnShoot").addEventListener("click", onShoot);
   $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
   const lightBtn = $("#btnLight"); if (lightBtn) lightBtn.addEventListener("click", onToggleLight);
+  initPinchZoom();
 
   // 未送信
   $("#outboxCard").addEventListener("click", openOutbox);
@@ -400,7 +408,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.18");
+  url.searchParams.set("v", "1.6.19");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -626,6 +634,7 @@ async function startCameraFlow() {
     state.cameraTrack = track;
     state.torchOn = false;
     updateLightButton();
+    await initWideZoom(track);
     setTimeout(renderBoard, 80);
   } catch (e) {
     state.cameraOn = false;
@@ -644,6 +653,7 @@ function stopCameraFlow() {
   state.cameraTrack = null;
   state.torchSupported = false;
   state.torchOn = false;
+  resetZoomState();
   updateLightButton();
 }
 
@@ -657,6 +667,7 @@ async function onSwitchCamera() {
     state.cameraTrack = track;
     state.torchOn = false;
     updateLightButton();
+    await initWideZoom(track);
     setTimeout(renderBoard, 80);
   } catch (e) { toastError(e.message); }
 }
@@ -689,6 +700,108 @@ function updateLightButton() {
   btn.classList.toggle("active", !!state.torchOn);
   btn.setAttribute("aria-pressed", state.torchOn ? "true" : "false");
   btn.title = state.torchOn ? "ライトON" : "ライトOFF";
+}
+
+
+/* ============================================================ Pinch Zoom */
+
+function resetZoomState() {
+  state.zoomMode = "digital";
+  state.zoom = 1;
+  state.zoomMin = 1;
+  state.zoomMax = 4;
+  state.zoomStep = 0.1;
+  state.pinchStartDist = 0;
+  state.pinchStartZoom = 1;
+  applyZoomDisplay();
+}
+
+async function initWideZoom(track) {
+  const caps = getZoomCapabilities(track);
+  if (caps && caps.max > caps.min) {
+    state.zoomMode = "hardware";
+    state.zoomMin = caps.min;
+    state.zoomMax = Math.min(caps.max, Math.max(caps.min, 6));
+    state.zoomStep = caps.step || 0.1;
+    state.zoom = caps.min;
+    await setCameraZoom(track, caps.min); // できるだけ広角側で開始
+  } else {
+    state.zoomMode = "digital";
+    state.zoomMin = 1;
+    state.zoomMax = 4;
+    state.zoomStep = 0.05;
+    state.zoom = 1; // デジタルズームなし = 最広角
+  }
+  applyZoomDisplay();
+}
+
+function initPinchZoom() {
+  const wrap = $("#bcamWrap");
+  if (!wrap) return;
+
+  wrap.addEventListener("touchstart", (ev) => {
+    if (ev.target && ev.target.closest && ev.target.closest("button")) return;
+    if (ev.touches.length === 2) {
+      state.pinchStartDist = touchDistance(ev.touches[0], ev.touches[1]);
+      state.pinchStartZoom = state.zoom;
+    }
+  }, { passive: true });
+
+  wrap.addEventListener("touchmove", (ev) => {
+    if (ev.target && ev.target.closest && ev.target.closest("button")) return;
+    if (ev.touches.length === 2 && state.pinchStartDist > 0) {
+      ev.preventDefault();
+      const d = touchDistance(ev.touches[0], ev.touches[1]);
+      const ratio = d / state.pinchStartDist;
+      setZoom(state.pinchStartZoom * ratio);
+    }
+  }, { passive: false });
+
+  wrap.addEventListener("touchend", (ev) => {
+    if (ev.touches.length < 2) {
+      state.pinchStartDist = 0;
+      state.pinchStartZoom = state.zoom;
+    }
+  }, { passive: true });
+}
+
+function touchDistance(a, b) {
+  const dx = a.clientX - b.clientX;
+  const dy = a.clientY - b.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+async function setZoom(rawZoom) {
+  const stepped = Math.round(rawZoom / state.zoomStep) * state.zoomStep;
+  const z = Math.max(state.zoomMin, Math.min(state.zoomMax, stepped));
+  state.zoom = z;
+  if (state.zoomMode === "hardware" && state.cameraTrack) {
+    const ok = await setCameraZoom(state.cameraTrack, z);
+    if (!ok) {
+      state.zoomMode = "digital";
+      state.zoomMin = 1;
+      state.zoomMax = 4;
+      state.zoom = Math.max(1, Math.min(4, z));
+    }
+  }
+  applyZoomDisplay();
+}
+
+function applyZoomDisplay() {
+  const video = $("#videoEl");
+  const badge = $("#zoomBadge");
+  if (video) {
+    if (state.zoomMode === "digital" && state.zoom > 1.001) {
+      video.style.transform = `scale(${state.zoom})`;
+    } else {
+      video.style.transform = "";
+    }
+  }
+  if (badge) {
+    const show = state.cameraOn && state.zoom > state.zoomMin + 0.01;
+    badge.hidden = !show;
+    badge.textContent = `${state.zoom.toFixed(1)}×`;
+  }
 }
 
 /* ============================================================ 黒板表示 */
@@ -843,6 +956,7 @@ async function onShoot() {
       cropToRatio: true,
       alsoNoBoard: ALWAYS_NO_BOARD,
       maxLongSide: FAST_PHOTO_MAX_LONG_SIDE,
+      digitalZoom: state.zoomMode === "digital" ? state.zoom : 1,
     });
 
     shutterSound();

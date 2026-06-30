@@ -1,5 +1,5 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(v1.6.18 仕様)
+// GenCan風 黒板焼き込み(v1.6.19 仕様)
 // 行構成:
 //   1) 工事名(ラベル+値、下罫線あり)
 //   2) 場所(ラベル+値、下罫線あり)
@@ -38,6 +38,7 @@ export async function composePhoto(source, options) {
   const cropToRatio = opts.cropToRatio !== false;
   const alsoNoBoard = !!opts.alsoNoBoard;
   const maxLongSide = opts.maxLongSide || 0;
+  const digitalZoom = clamp(opts.digitalZoom || 1, 1, 4);
 
   const sw = source.width  || source.videoWidth  || source.naturalWidth;
   const sh = source.height || source.videoHeight || source.naturalHeight;
@@ -51,6 +52,15 @@ export async function composePhoto(source, options) {
     cy = Math.round((sh - ch) / 2);
   } else {
     cw = sw; ch = sh; cx = 0; cy = 0;
+  }
+
+  if (digitalZoom > 1.001) {
+    const zw = Math.max(1, Math.round(cw / digitalZoom));
+    const zh = Math.max(1, Math.round(ch / digitalZoom));
+    cx += Math.round((cw - zw) / 2);
+    cy += Math.round((ch - zh) / 2);
+    cw = zw;
+    ch = zh;
   }
 
   let outW = cw, outH = ch;

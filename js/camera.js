@@ -110,3 +110,32 @@ function normalizeError(e) {
     return new Error("HTTPS でアクセスしていないか、カメラ機能が無効化されています。");
   return new Error("カメラ起動エラー: " + (e?.message || String(e)));
 }
+
+export function getZoomCapabilities(track) {
+  if (!track || typeof track.getCapabilities !== "function") return null;
+  try {
+    const caps = track.getCapabilities();
+    if (!caps || typeof caps.zoom !== "object") return null;
+    const z = caps.zoom;
+    if (typeof z.min !== "number" || typeof z.max !== "number") return null;
+    return {
+      min: z.min,
+      max: z.max,
+      step: typeof z.step === "number" && z.step > 0 ? z.step : 0.1,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function setCameraZoom(track, zoom) {
+  const caps = getZoomCapabilities(track);
+  if (!track || !caps) return false;
+  const z = Math.max(caps.min, Math.min(caps.max, zoom));
+  try {
+    await track.applyConstraints({ advanced: [{ zoom: z }] });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
