@@ -12,13 +12,13 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.6.19" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.6.19" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.6.19" />
-  <link rel="stylesheet" href="./style.css?v=1.6.19" />
+  <link rel="manifest" href="./manifest.json?v=1.7.0" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.7.0" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.7.0" />
+  <link rel="stylesheet" href="./style.css?v=1.7.0" />
 
   <script>
-  window.__KITAGATA_BUILD__ = "1.6.19";
+  window.__KITAGATA_BUILD__ = "1.7.0";
   window.__KITAGATA_FALLBACK_CONFIG__ = {
     GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
     SHARED_TOKEN: "kitagata-photo-2026"
@@ -40,7 +40,7 @@
     } finally {
       const url = new URL(location.href);
       url.searchParams.delete("reset");
-      url.searchParams.set("v", "1.6.19");
+      url.searchParams.set("v", "1.7.0");
       location.replace(url.toString());
     }
   })();
@@ -104,6 +104,19 @@
 
     <!-- 次の連番ヒント(小) -->
     <p class="next-hint" id="nextSeqHint"></p>
+
+    <!-- 直前に撮った写真(その場でやり直し) -->
+    <div class="last-shot" id="lastShot" hidden>
+      <div class="ls-thumb"><img id="lastShotImg" alt="直前に撮った写真" /></div>
+      <div class="ls-body">
+        <span class="ls-title">直前の写真</span>
+        <span class="ls-name" id="lastShotName"></span>
+      </div>
+      <button class="ls-redo" id="btnRedoShot" type="button" aria-label="この写真を削除してやり直す">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L3 8"/></svg>
+        やり直し
+      </button>
+    </div>
 
     <!-- 未送信カード(あれば表示) -->
     <button class="outbox-card" id="outboxCard" type="button" hidden>
@@ -245,7 +258,7 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js?v=1.6.19"></script>
+<script type="module" src="./js/app.js?v=1.7.0"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -255,7 +268,7 @@ if ('serviceWorker' in navigator) {
       refreshing = true;
       location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=1.6.19', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js?v=1.7.0', { updateViaCache: 'none' })
       .then(reg => {
         reg.update();
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });

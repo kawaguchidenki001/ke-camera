@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.6.19: 画質向上版)
+// 北方カメラ - 設定値(v1.7.0: 画質向上版)
 
-export const APP_VERSION = "1.6.19";
+export const APP_VERSION = "1.7.0";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -77,7 +77,7 @@ export const FALLBACK_STAGES = Object.freeze([
 // ファイル
 // ============================================================
 export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{fixture}_{stage}_{seq}.jpg";
-export const JPEG_QUALITY = 0.82;  // v1.6.19: 画質向上
+export const JPEG_QUALITY = 0.82;  // v1.7.0: 画質向上
 export const PENDING_LIMIT = 100;
 export const PENDING_WARN  = 80;
 export const AUTO_CLEANUP_DAYS = 7;

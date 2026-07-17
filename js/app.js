@@ -1,14 +1,13 @@
 // js/app.js
-// 北方カメラ v1.6.19 - 施工段階3ボタン固定版
+// 北方カメラ v1.7.0 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
-  GAS_WEB_APP_URL,
   SHEETS_ID,
-  FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES, FALLBACK_STAGES,
+  FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES,
   FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.6.19";
+} from "./config.js?v=1.7.0";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -16,24 +15,24 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.6.19";
+} from "./storage.js?v=1.7.0";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.6.19";
-import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom } from "./camera.js?v=1.6.19";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.6.19";
-import { readAllConfig } from "./sheets.js?v=1.6.19";
+} from "./ui.js?v=1.7.0";
+import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom } from "./camera.js?v=1.7.0";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.7.0";
+import { readAllConfig } from "./sheets.js?v=1.7.0";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.6.19";
+} from "./gas-uploader.js?v=1.7.0";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
-  autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.6.19";
+  autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
+} from "./photoStore.js?v=1.7.0";
 
 const { $, $$ } = dom;
 
@@ -42,12 +41,12 @@ const { $, $$ } = dom;
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
 const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
-const FAST_PHOTO_MAX_LONG_SIDE = 1600;  // v1.6.19: 画質向上
+const FAST_PHOTO_MAX_LONG_SIDE = 1600;  // v1.7.0: 画質向上
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
-const AFTER_EACH_UPLOAD_PAUSE_MS_MOBILE = 1800;
 const BACKGROUND_UPLOAD_PAUSE_MS_MOBILE = 1800;
 const BACKGROUND_UPLOAD_PAUSE_MS_PC = 250;
+const MAX_BG_RETRY = 3;  // バックグラウンド送信で失敗写真を自動再試行する上限
 
 /* ============================================================ デバッグログ */
 
@@ -98,6 +97,8 @@ const state = {
   backgroundUploading: false,
   cancelBatch:   false,
   gasReady:      false,
+
+  lastShot:      null,   // 直前に撮った写真(やり直し用) { ids, roomKey, date, seq, fileName }
 };
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -341,6 +342,9 @@ function initEvents() {
   // 未送信
   $("#outboxCard").addEventListener("click", openOutbox);
 
+  // 直前写真のやり直し
+  const redoBtn = $("#btnRedoShot"); if (redoBtn) redoBtn.addEventListener("click", onRedoShot);
+
   // メニュー
   $("#btnMenu").addEventListener("click", openMenu);
   const quickMenu = $("#quickOpenMenu"); if (quickMenu) quickMenu.addEventListener("click", openMenu);
@@ -408,7 +412,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.6.19");
+  url.searchParams.set("v", "1.7.0");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -815,13 +819,14 @@ function renderBoard() {
   const fixture  = state.fixture || "";
   const stage    = state.stage || "";
   const company  = state.project.company || "";
+  const dateStr  = todayYmd();
 
   ov.innerHTML =
     `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(projName)}</span></div></div>` +
     `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(place)}</span></div></div>` +
     `<div class="bov-lf"  style="height:${pct(BROWH.c)}"><span class="bv-t" data-k="c">${esc(fixture)}</span></div>` +
     `<div class="bov-stage" style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(stage)}</span></div>` +
-    `<div class="bov-co"    style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(company)}</span></div>`;
+    `<div class="bov-co"    style="height:${pct(BROWH.e)}"><span class="bov-co-l"><span class="bv-t" data-k="f">${esc(dateStr)}</span></span><span class="bov-co-r"><span class="bv-t" data-k="e">${esc(company)}</span></span></div>`;
   ov.style.display = "block";
   layoutBoard();
 }
@@ -852,7 +857,8 @@ function layoutBoard() {
   setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
   setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.72, bw); // 施工段階は中央で大きく
-  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
+  setRowFont(ov, ".bv-t[data-k='f']", "f", BROWH.e, 0.42, bw); // 撮影日(左)
+  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名(右)
 
   function setSharedRowFont(rootEl, selectors, frac, factor) {
     const items = selectors
@@ -940,6 +946,7 @@ async function onShoot() {
     const video = $("#videoEl");
     const source = video;
 
+    const shotDate = todayYmd();
     const labels = { a: "工事名", b: "場所" };
     const values = {
       a: state.project.name || "",
@@ -947,6 +954,7 @@ async function onShoot() {
       c: state.fixture || "",
       d: state.stage || "",
       e: state.project.company || "",
+      f: shotDate,   // 撮影日(黒板の最下行 左側に焼き込む)
     };
 
     const result = await composePhoto(source, {
@@ -967,7 +975,7 @@ async function onShoot() {
       fixture:      state.fixture,
       stage:        state.stage,
       photographer: state.photographer,
-      date:         todayYmd(),
+      date:         shotDate,
       project:      state.project,
       boardValues:  values,
     };
@@ -996,6 +1004,16 @@ async function onShoot() {
     dbg(`端末保存完了: ${savedIds.length}枚 ${fileNameMain}`);
     toastSuccess(`端末に保存。Drive送信は裏で実行中: ${fileNameMain}`);
 
+    // 直前の写真を「やり直し」できるように記録・表示
+    showLastShot({
+      ids: savedIds.slice(),
+      roomKey,
+      date: board.date,
+      seq: board.seq,
+      fileName: fileNameMain,
+      previewBlob: result.withBoard.blob,
+    });
+
     // 次の連番ヒントと未送信枚数をすぐ更新
     refreshChips();
     await refreshOutboxCard();
@@ -1010,6 +1028,66 @@ async function onShoot() {
     btn.disabled = false;
     btn.textContent = origText;
   }
+}
+
+/* ============================================================ 直前写真のやり直し */
+
+function showLastShot(shot) {
+  // 直前の写真が入れ替わるので、前回分のプレビューURLは解放しておく(メモリ節約)
+  if (state.lastShot && Array.isArray(state.lastShot.ids)) {
+    for (const id of state.lastShot.ids) revokeObjectUrl(id);
+  }
+  state.lastShot = shot;
+  const card = $("#lastShot");
+  const img  = $("#lastShotImg");
+  const name = $("#lastShotName");
+  if (!card || !img) return;
+  const url = getObjectUrl(shot.ids[0], shot.previewBlob);
+  if (url) img.src = url;
+  if (name) name.textContent = shot.fileName || "";
+  card.hidden = false;
+}
+
+function hideLastShot() {
+  const card = $("#lastShot");
+  if (card) card.hidden = true;
+  const img = $("#lastShotImg");
+  if (img) img.removeAttribute("src");
+  state.lastShot = null;
+}
+
+async function onRedoShot() {
+  const shot = state.lastShot;
+  if (!shot || !Array.isArray(shot.ids) || shot.ids.length === 0) {
+    hideLastShot();
+    return;
+  }
+  const ok = await confirmDialog("直前の写真を削除してやり直しますか?\n(端末から削除します。まだ送信前なら連番も1つ戻します)");
+  if (!ok) return;
+
+  let deleted = 0;
+  let anyUploaded = false;
+  for (const id of shot.ids) {
+    try {
+      const p = await getPhoto(id);
+      if (p && p.status === "uploaded") anyUploaded = true;
+    } catch (e) {}
+    try {
+      await deletePhoto(id);
+      revokeObjectUrl(id);
+      deleted++;
+    } catch (e) {
+      dbg(`やり直し削除エラー: ${e.message || e}`);
+    }
+  }
+
+  // まだ送信していない写真だけ連番を巻き戻す(送信済みは番号の重複を避けるため戻さない)
+  if (shot.roomKey && !anyUploaded) rollbackSeq(shot.roomKey, shot.date);
+
+  hideLastShot();
+  refreshChips();
+  await refreshOutboxCard();
+  if (deleted > 0) toastInfo(`直前の写真を削除しました(${deleted}枚)。撮り直せます`);
 }
 
 function shutterSound() {
@@ -1102,7 +1180,11 @@ async function startBackgroundUploadQueue() {
   try {
     while (true) {
       await resetStaleUploading(30 * 1000);
-      const list = (await getPendingPhotos()).filter(p => p.status !== "failed");
+      // 失敗写真も MAX_BG_RETRY 回までは自動で再送する(一時的な通信断からの自動回復)。
+      // 上限を超えた失敗は打ち切り、未送信一覧からの手動再送に委ねる。
+      const list = (await getPendingPhotos()).filter(
+        p => p.status !== "failed" || (p.attempts || 0) < MAX_BG_RETRY
+      );
       if (list.length === 0) break;
 
       const p = list[0];
@@ -1191,6 +1273,8 @@ async function renderOutbox() {
         <span class="oi-loc">${escapeHtml(p.board.building)}-${escapeHtml(p.board.room)}</span>
         <span class="oi-type">${escapeHtml(p.board.fixture || "")} / ${escapeHtml(p.board.stage || "")}</span>
         <span class="oi-date">${escapeHtml(p.board.date)} #${pad3(p.board.seq)}${p.board.isNoBoard ? " (黒板なし)" : ""}</span>
+        ${p.status === "failed" && p.lastError ? `<span class="oi-error">${escapeHtml(String(p.lastError).slice(0, 90))}</span>` : ""}
+        ${p.status !== "uploading" ? `<button class="oi-retry" data-action="retry" data-id="${escapeHtml(p.id)}" type="button">再送信</button>` : ""}
       </div>
     `;
     listEl.appendChild(item);
@@ -1204,9 +1288,32 @@ async function renderOutbox() {
       if (!ok) return;
       try {
         await deletePhoto(id);
+        revokeObjectUrl(id);
         await renderOutbox();
         await refreshOutboxCard();
       } catch (err) { toastError("削除失敗: " + err.message); }
+    });
+  });
+
+  // 写真ごとの再送信(特に失敗した写真の手動リトライ用)
+  $$("#outboxList [data-action='retry']").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (state.uploading) { toastInfo("送信中です。少し待ってから再送信してください"); return; }
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      btn.textContent = "送信中…";
+      state.uploading = true;
+      try {
+        await uploadOne(id);
+        toastSuccess("再送信しました");
+      } catch (err) {
+        toastError("再送信失敗: " + (err.message || err));
+      } finally {
+        state.uploading = false;
+        await renderOutbox();
+        await refreshOutboxCard();
+      }
     });
   });
 }

@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.6.19 ・ 施工段階3ボタン固定版
+   北方カメラ v1.7.0 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -356,21 +356,31 @@ input { font: inherit; color: inherit; }
   white-space: nowrap;
   transform-origin: center center;
 }
-/* 会社名(右下、小さめ) */
+/* 撮影日(左) + 会社名(右)、小さめ */
 .bov-co {
   color: #ffffff;
   display: flex;
   align-items: flex-end;
-  justify-content: flex-end;
-  padding: 0 4% 3% 0;
+  justify-content: space-between;
+  gap: 3%;
+  padding: 0 4% 3% 4%;
   font-weight: 800;
   overflow: hidden;
 }
+.bov-co-l, .bov-co-r {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.bov-co-r { justify-content: flex-end; }
 .bov-co .bv-t {
   display: inline-block;
   white-space: nowrap;
-  transform-origin: right bottom;
 }
+.bov-co-l .bv-t { transform-origin: left bottom; }
+.bov-co-r .bv-t { transform-origin: right bottom; }
 
 /* ============================================================ 次の連番ヒント */
 
@@ -380,6 +390,67 @@ input { font: inherit; color: inherit; }
   color: var(--sub);
   margin: 6px 0 6px;
 }
+
+/* ============================================================ 直前写真(やり直し) */
+
+.last-shot {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--rise-sm);
+  margin-bottom: 10px;
+}
+.last-shot .ls-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #111;
+  box-shadow: var(--well-soft);
+}
+.last-shot .ls-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.last-shot .ls-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.last-shot .ls-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sub);
+  letter-spacing: .04em;
+}
+.last-shot .ls-name {
+  font-size: 11px;
+  color: var(--ink);
+  font-family: var(--font-en);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.last-shot .ls-redo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  min-height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: var(--rise-sm);
+}
+.last-shot .ls-redo:active { box-shadow: var(--well); }
 
 /* ============================================================ 未送信カード */
 
@@ -601,6 +672,27 @@ input { font: inherit; color: inherit; }
   color: #fff;
   border-radius: 50%;
 }
+.outbox-item .oi-error {
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+.outbox-item .oi-retry {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 14px;
+  min-height: 34px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: var(--rise-sm);
+}
+.outbox-item .oi-retry:active { box-shadow: var(--well); }
+.outbox-item .oi-retry[disabled] { opacity: .6; }
 .outbox-empty {
   text-align: center;
   padding: 48px 16px;
