@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.8.1 - 施工段階3ボタン固定版
+// 北方カメラ v1.8.2 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
-} from "./config.js?v=1.8.1";
+} from "./config.js?v=1.8.2";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -17,27 +17,28 @@ import {
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
-} from "./storage.js?v=1.8.1";
+  getSavedLensId, setSavedLensId,
+} from "./storage.js?v=1.8.2";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.8.1";
+} from "./ui.js?v=1.8.2";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.8.1";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.1";
-import { readAllConfig } from "./sheets.js?v=1.8.1";
+} from "./camera.js?v=1.8.2";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.2";
+import { readAllConfig } from "./sheets.js?v=1.8.2";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.8.1";
+} from "./gas-uploader.js?v=1.8.2";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.8.1";
+} from "./photoStore.js?v=1.8.2";
 
 const { $, $$ } = dom;
 
@@ -101,10 +102,11 @@ const state = {
   pinchStartZoom: 1,
 
   // レンズ/スライダー
-  lens:          "main",   // "main" | "ultra"
-  hasUltra:      false,    // 超広角レンズ(別デバイス)が使えるか
+  lens:          "main",   // "main" | "ultra" | "other"(手動選択の背面レンズ)
+  hasUltra:      false,    // ラベルで超広角と確定できるレンズがあるか
   ultraDeviceId: "",
   mainDeviceId:  "",
+  backCameras:   [],       // 背面カメラ一覧(手動レンズ切替用)
   uiZoom:        1,        // スライダー表示倍率(0.5=超広角, 1.0=標準)
   uiMin:         1,
   uiMax:         4,
@@ -356,6 +358,7 @@ function initEvents() {
   $("#btnShoot").addEventListener("click", onShoot);
   $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
   const lightBtn = $("#btnLight"); if (lightBtn) lightBtn.addEventListener("click", onToggleLight);
+  const lensBtn = $("#btnLensCycle"); if (lensBtn) lensBtn.addEventListener("click", cycleLens);
   initPinchZoom();
   initZoomSlider();
 
@@ -433,7 +436,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.8.1");
+  url.searchParams.set("v", "1.8.2");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -697,6 +700,7 @@ async function startCameraFlow() {
     updateLightButton();
     await detectLenses(track);
     await initMainZoom(track);
+    updateLensButton();
     await startWide();
     setTimeout(renderBoard, 80);
   } catch (e) {
@@ -704,6 +708,7 @@ async function startCameraFlow() {
     state.cameraTrack = null;
     state.torchOn = false;
     updateLightButton();
+    updateLensButton();
     toastError(e.message);
   }
 }
@@ -733,6 +738,7 @@ async function onSwitchCamera() {
     updateLightButton();
     await detectLenses(track);
     await initMainZoom(track);
+    updateLensButton();
     await startWide();
     setTimeout(renderBoard, 80);
   } catch (e) { toastError(e.message); }
@@ -785,37 +791,52 @@ function resetZoomState() {
   state.uiMax = 4;
   applyZoomDisplay();
   updateZoomSlider();
+  updateLensButton();
 }
 
 // 背面カメラの中からメイン/超広角レンズを推定する。
-// ラベルは iOS Safari では「背面超広角カメラ」等が取れる。Android では取れないことが多い。
+// 注意: iPhone のメインカメラは「背面広角カメラ(Back Wide Camera)」なので、
+// 「広角/wide」では判定しない。「超広角/ultra」の明確な一致だけを自動採用する。
 async function detectLenses(track) {
   state.hasUltra = false;
   state.ultraDeviceId = "";
+  state.backCameras = [];
   state.mainDeviceId = getCurrentDeviceId() || "";
   try {
     const settings = (track && track.getSettings) ? track.getSettings() : {};
-    if (settings && settings.facingMode === "user") return;  // 前面カメラは対象外
+    if (!state.mainDeviceId && settings && settings.deviceId) state.mainDeviceId = settings.deviceId;
 
     const inputs = await listVideoInputs();
+    dbg(`カメラ一覧(${inputs.length}): ` + inputs.map(d => d.label || "(名称なし)").join(" / "));
+    if (settings && settings.facingMode === "user") return;  // 前面カメラ使用中は対象外
     if (!inputs || inputs.length < 2) return;
 
-    const curId = getCurrentDeviceId() || (settings && settings.deviceId) || "";
-    if (curId) state.mainDeviceId = curId;
+    const backs = inputs.filter(isBackCamera);
+    state.backCameras = backs;
 
-    const isFront = (l) => /front|face|内側|前面|self/i.test(l);
-    const isUltra = (l) => /ultra|超広角|0\.5/i.test(l) || (/wide|広角/i.test(l) && !/tele|望遠/i.test(l));
-
-    const backs = inputs.filter(d => !isFront(d.label || ""));
-    const ultra = backs.find(d => d.deviceId && d.deviceId !== state.mainDeviceId && isUltra(d.label || ""));
-    if (ultra && ultra.deviceId) {
+    const ultra = backs.find(d =>
+      d.deviceId && d.deviceId !== state.mainDeviceId &&
+      /(超広角|ultra)/i.test(d.label || "") &&
+      !/(望遠|tele|depth|マクロ|macro)/i.test(d.label || ""));
+    if (ultra) {
       state.hasUltra = true;
       state.ultraDeviceId = ultra.deviceId;
-      dbg(`超広角レンズ検出: ${ultra.label || ultra.deviceId.slice(0, 8)}`);
+      dbg(`超広角レンズ検出: ${ultra.label}`);
     }
   } catch (e) {
     dbg(`レンズ検出エラー: ${e.message || e}`);
   }
+}
+
+function isBackCamera(d) {
+  try {
+    const caps = d.getCapabilities ? d.getCapabilities() : null;
+    if (caps && Array.isArray(caps.facingMode) && caps.facingMode.length > 0) {
+      return caps.facingMode.includes("environment");
+    }
+  } catch (e) {}
+  const l = d.label || "";
+  return !/(front|前面|フロント|face|user|self|内側)/i.test(l);
 }
 
 async function initMainZoom(track) {
@@ -842,9 +863,21 @@ async function initMainZoom(track) {
   updateZoomSlider();
 }
 
-// 最初から広角: 別レンズの超広角があればそちらへ切り替える。
+// 最初から広角:
+// 1) 以前手動で選んだレンズがあればそれを復元(次回から自動)
+// 2) なければ、超広角レンズを確実に検出できた場合のみ超広角へ切替
 // (ハードウェアズームで広角化できる端末は initMainZoom の時点で最広角済み)
 async function startWide() {
+  const saved = getSavedLensId();
+  if (saved && saved !== state.mainDeviceId && (state.backCameras || []).some(d => d.deviceId === saved)) {
+    if (state.hasUltra && state.ultraDeviceId === saved) {
+      state.uiZoom = state.uiMin;
+      await switchLens("ultra");
+    } else {
+      await activateLensDevice(saved);
+    }
+    return;
+  }
   if (state.hasUltra && state.ultraDeviceId && state.uiMin < 1 - 1e-3) {
     state.uiZoom = state.uiMin;
     await switchLens("ultra");
@@ -882,8 +915,13 @@ function initZoomSlider() {
 function onZoomSlider(v) {
   v = clampNum(v, state.uiMin, state.uiMax);
   state.uiZoom = v;
-  const wantUltra = state.hasUltra && v < 1.0 - 1e-3;
-  // メインレンズ域の変更は即時反映(なめらか)。レンズ切替が必要な時はデバウンス。
+  // 手動選択レンズの上ではそのレンズのズームを直接操作する
+  if (state.lens === "other") {
+    setZoom(v);
+    return;
+  }
+  // メインレンズ自身が1×未満まで対応する端末では、レンズ切替せずハードウェアで広角化
+  const wantUltra = state.hasUltra && v < Math.min(1, state.zoomMin) - 1e-3;
   if (!wantUltra && state.lens === "main") {
     setZoom(v);
   } else {
@@ -899,14 +937,98 @@ function scheduleLensReconcile() {
 
 async function reconcileLens() {
   if (state.lensSwitching || !state.cameraOn) return;
+  if (state.lens === "other") return;  // 手動選択中は自動切替しない
   const v = state.uiZoom;
-  const wantUltra = state.hasUltra && v < 1.0 - 1e-3;
+  const wantUltra = state.hasUltra && v < Math.min(1, state.zoomMin) - 1e-3;
   if (wantUltra && state.lens !== "ultra") {
     await switchLens("ultra");
   } else if (!wantUltra && state.lens !== "main") {
     await switchLens("main");
-    await setZoom(Math.max(1, v));
+    await setZoom(Math.max(state.zoomMin, v));
   }
+}
+
+/* --- 手動レンズ切替(超広角が自動検出できない端末向け) --- */
+
+async function cycleLens() {
+  if (!state.cameraOn || state.lensSwitching) return;
+  const backs = state.backCameras || [];
+  if (backs.length < 2) {
+    toastInfo("この端末で切替できる背面レンズが見つかりません");
+    return;
+  }
+  const curId = getCurrentDeviceId() || state.mainDeviceId;
+  const idx = backs.findIndex(d => d.deviceId === curId);
+  const next = backs[(idx + 1) % backs.length];
+  if (!next || next.deviceId === curId) return;
+  await activateLensDevice(next.deviceId, { announce: true });
+}
+
+async function activateLensDevice(deviceId, { announce = false } = {}) {
+  if (state.lensSwitching) return;
+  state.lensSwitching = true;
+  const video = $("#videoEl");
+  const q = activeQuality();
+  try {
+    if (state.torchOn && state.cameraTrack) { try { await setTorch(state.cameraTrack, false); } catch (e) {} }
+    const track = await startCameraByDeviceId(video, deviceId, { width: q.capW, height: q.capH });
+    state.cameraTrack = track;
+    state.torchOn = false;
+    updateLightButton();
+
+    const isMain  = deviceId === state.mainDeviceId;
+    const isUltra = state.hasUltra && deviceId === state.ultraDeviceId;
+    state.lens = isMain ? "main" : (isUltra ? "ultra" : "other");
+
+    if (state.lens === "ultra") {
+      state.zoomMode = "ultra";
+      state.zoom = 1;
+      state.uiMin = Math.min(0.5, state.zoomMin);
+      state.uiZoom = state.uiMin;
+    } else {
+      initMainZoomCaps(track);
+      state.zoom = state.zoomMin;
+      if (state.zoomMode === "hardware") await setCameraZoom(track, state.zoom);
+      state.uiMin = (state.lens === "main" && state.hasUltra) ? Math.min(0.5, state.zoomMin) : state.zoomMin;
+      state.uiMax = state.zoomMax;
+      state.uiZoom = clampNum(state.zoom, state.uiMin, state.uiMax);
+    }
+
+    // メイン以外を選んだら記憶して次回からそのレンズで起動。メインに戻したら解除。
+    setSavedLensId(isMain ? "" : deviceId);
+    if (announce) {
+      const backs = state.backCameras || [];
+      const i = backs.findIndex(d => d.deviceId === deviceId);
+      const name = isMain ? "標準カメラ" : (isUltra ? "超広角カメラ" : `レンズ${i >= 0 ? i + 1 : "?"}`);
+      toastInfo(isMain ? `${name}(次回から標準で起動)` : `${name}に切替。次回からこのレンズで起動します`);
+    }
+
+    applyZoomDisplay();
+    updateZoomSlider();
+    updateLensButton();
+    setTimeout(renderBoard, 80);
+    dbg(`手動レンズ切替: ${state.lens} (${deviceId.slice(0, 8)}…)`);
+  } catch (e) {
+    dbg(`手動レンズ切替失敗: ${e.message || e}`);
+    toastError("このレンズには切り替えできませんでした");
+    try {
+      const track = await startCamera(video, { facingMode: CAMERA_DEFAULTS.facing, width: q.capW, height: q.capH });
+      state.cameraTrack = track;
+      state.lens = "main";
+      initMainZoomCaps(track);
+      state.uiZoom = clampNum(state.zoom, state.uiMin, state.uiMax);
+      applyZoomDisplay();
+      updateZoomSlider();
+    } catch (e2) {}
+  } finally {
+    state.lensSwitching = false;
+  }
+}
+
+function updateLensButton() {
+  const btn = $("#btnLensCycle");
+  if (!btn) return;
+  btn.hidden = !(state.cameraOn && (state.backCameras || []).length >= 2);
 }
 
 async function switchLens(target) {
@@ -1025,7 +1147,16 @@ function updateZoomBadge() {
   const badge = $("#zoomBadge");
   if (!badge) return;
   badge.hidden = !state.cameraOn;
-  badge.textContent = `${formatZoom(state.uiZoom)}×`;
+  if (state.lens === "other") {
+    // 名前の分からないレンズは倍率を偽らず「レンズn」と表示する
+    const backs = state.backCameras || [];
+    const curId = getCurrentDeviceId();
+    const i = backs.findIndex(d => d.deviceId === curId);
+    const zoomPart = state.zoom > state.zoomMin + 0.01 ? ` ${formatZoom(state.zoom)}×` : "";
+    badge.textContent = `レンズ${i >= 0 ? i + 1 : "?"}${zoomPart}`;
+  } else {
+    badge.textContent = `${formatZoom(state.uiZoom)}×`;
+  }
 }
 
 function updateZoomSlider() {

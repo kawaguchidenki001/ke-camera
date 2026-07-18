@@ -125,6 +125,17 @@ const QUALITY_KEY = "kc:quality";
 export function getQuality()      { return localStorage.getItem(QUALITY_KEY) || ""; }
 export function setQuality(q)     { try { localStorage.setItem(QUALITY_KEY, q || ""); } catch (e) {} }
 
+/* ============================================================ レンズ記憶(手動で選んだ背面レンズ) */
+
+const LENS_KEY = "kc:lensId";
+export function getSavedLensId()  { return localStorage.getItem(LENS_KEY) || ""; }
+export function setSavedLensId(id) {
+  try {
+    if (id) localStorage.setItem(LENS_KEY, id);
+    else localStorage.removeItem(LENS_KEY);
+  } catch (e) {}
+}
+
 /* ============================================================ 連番(部屋+日付ごと) */
 
 export function nextSeq(roomKey, dateStr) {

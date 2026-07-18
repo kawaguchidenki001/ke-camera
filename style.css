@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.8.1 ・ 施工段階3ボタン固定版
+   北方カメラ v1.8.2 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -260,6 +260,12 @@ input { font: inherit; color: inherit; }
   box-shadow: inset 2px 2px 5px rgba(0,0,0,.18), 0 0 0 3px rgba(255,211,77,.35);
 }
 .bcam-tool[hidden] { display: none; }
+.bcam-tool .lens-cycle-txt {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  line-height: 1;
+}
 
 .zoom-badge {
   position: absolute;

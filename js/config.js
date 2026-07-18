@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.8.1: 画質向上版)
+// 北方カメラ - 設定値(v1.8.2: 画質向上版)
 
-export const APP_VERSION = "1.8.1";
+export const APP_VERSION = "1.8.2";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -91,7 +91,7 @@ export const QUALITY_PRESETS = Object.freeze({
   high:     { label: "高画質", maxLongSide: 2048, jpeg: 0.90, capW: 2048, capH: 1536 },
   max:      { label: "最高",   maxLongSide: 2560, jpeg: 0.92, capW: 2560, capH: 1920 },
 });
-export const DEFAULT_QUALITY = "high";  // v1.8.1: 既定を高画質に
+export const DEFAULT_QUALITY = "high";  // v1.8.2: 既定を高画質に
 
 // ============================================================
 // カメラ
