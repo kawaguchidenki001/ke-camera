@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.8.0 - 施工段階3ボタン固定版
+// 北方カメラ v1.8.1 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
-} from "./config.js?v=1.8.0";
+} from "./config.js?v=1.8.1";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -17,27 +17,27 @@ import {
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
-} from "./storage.js?v=1.8.0";
+} from "./storage.js?v=1.8.1";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.8.0";
+} from "./ui.js?v=1.8.1";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.8.0";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.0";
-import { readAllConfig } from "./sheets.js?v=1.8.0";
+} from "./camera.js?v=1.8.1";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.1";
+import { readAllConfig } from "./sheets.js?v=1.8.1";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.8.0";
+} from "./gas-uploader.js?v=1.8.1";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.8.0";
+} from "./photoStore.js?v=1.8.1";
 
 const { $, $$ } = dom;
 
@@ -433,7 +433,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.8.0");
+  url.searchParams.set("v", "1.8.1");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -697,6 +697,7 @@ async function startCameraFlow() {
     updateLightButton();
     await detectLenses(track);
     await initMainZoom(track);
+    await startWide();
     setTimeout(renderBoard, 80);
   } catch (e) {
     state.cameraOn = false;
@@ -732,6 +733,7 @@ async function onSwitchCamera() {
     updateLightButton();
     await detectLenses(track);
     await initMainZoom(track);
+    await startWide();
     setTimeout(renderBoard, 80);
   } catch (e) { toastError(e.message); }
 }
@@ -823,7 +825,7 @@ async function initMainZoom(track) {
     state.zoomMin = caps.min;
     state.zoomMax = Math.min(caps.max, Math.max(caps.min, 8));
     state.zoomStep = caps.step || 0.1;
-    state.zoom = Math.max(1, caps.min);  // 標準(1×)で開始
+    state.zoom = caps.min;  // 最初から最広角(ハードウェア最小)で開始
     await setCameraZoom(track, state.zoom);
   } else {
     state.zoomMode = "digital";
@@ -835,9 +837,18 @@ async function initMainZoom(track) {
   // スライダー範囲: 超広角があれば 0.5× まで、無ければメインレンズの最小まで
   state.uiMin = state.hasUltra ? Math.min(0.5, state.zoomMin) : state.zoomMin;
   state.uiMax = state.zoomMax;
-  state.uiZoom = clampNum(state.zoom, state.uiMin, state.uiMax);
+  state.uiZoom = state.uiMin;  // スライダーも最広角側から
   applyZoomDisplay();
   updateZoomSlider();
+}
+
+// 最初から広角: 別レンズの超広角があればそちらへ切り替える。
+// (ハードウェアズームで広角化できる端末は initMainZoom の時点で最広角済み)
+async function startWide() {
+  if (state.hasUltra && state.ultraDeviceId && state.uiMin < 1 - 1e-3) {
+    state.uiZoom = state.uiMin;
+    await switchLens("ultra");
+  }
 }
 
 // レンズ切替後のメインズーム再初期化(uiレンジは維持)
