@@ -3,6 +3,7 @@
 
 let currentStream = null;
 let currentFacing = "environment";
+let currentDeviceId = "";
 
 export async function startCamera(videoEl, { facingMode = "environment", width = 1920, height = 1440 } = {}) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -30,10 +31,62 @@ export async function startCamera(videoEl, { facingMode = "environment", width =
   }
 
   currentFacing = facingMode;
+  currentDeviceId = "";
   videoEl.srcObject = currentStream;
   await videoEl.play().catch(() => {});
+  await waitForVideoReady(videoEl);
 
-  await new Promise((resolve) => {
+  return currentStream.getVideoTracks()[0];
+}
+
+/**
+ * deviceId を直接指定してカメラを起動する(超広角レンズなどの切替用)。
+ * 失敗時は例外を投げるので、呼び出し側でフォールバックすること。
+ */
+export async function startCameraByDeviceId(videoEl, deviceId, { width = 2048, height = 1536 } = {}) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error("このブラウザはカメラに対応していません");
+  }
+  if (!deviceId) throw new Error("deviceId が指定されていません");
+  stopCamera();
+
+  const constraints = {
+    video: {
+      deviceId: { exact: deviceId },
+      width:  { ideal: width },
+      height: { ideal: height },
+    },
+    audio: false,
+  };
+
+  currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+  currentFacing = "environment";
+  currentDeviceId = deviceId;
+  videoEl.srcObject = currentStream;
+  await videoEl.play().catch(() => {});
+  await waitForVideoReady(videoEl);
+
+  return currentStream.getVideoTracks()[0];
+}
+
+/**
+ * 利用可能な映像入力(カメラ)一覧を返す。
+ * ラベルは getUserMedia で権限が得られた後でないと空になる。
+ */
+export async function listVideoInputs() {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter(d => d.kind === "videoinput");
+  } catch (e) {
+    return [];
+  }
+}
+
+export function getCurrentDeviceId() { return currentDeviceId; }
+
+function waitForVideoReady(videoEl) {
+  return new Promise((resolve) => {
     if (videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
       resolve();
     } else {
@@ -41,8 +94,6 @@ export async function startCamera(videoEl, { facingMode = "environment", width =
       videoEl.addEventListener("loadedmetadata", onMeta);
     }
   });
-
-  return currentStream.getVideoTracks()[0];
 }
 
 export async function switchCamera(videoEl) {

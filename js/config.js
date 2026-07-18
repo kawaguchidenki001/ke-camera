@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.7.0: 画質向上版)
+// 北方カメラ - 設定値(v1.8.0: 画質向上版)
 
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.8.0";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -77,18 +77,29 @@ export const FALLBACK_STAGES = Object.freeze([
 // ファイル
 // ============================================================
 export const FILENAME_TEMPLATE = "{date}_{bldg}-{room}_{fixture}_{stage}_{seq}.jpg";
-export const JPEG_QUALITY = 0.82;  // v1.7.0: 画質向上
+export const JPEG_QUALITY = 0.82;  // 標準画質の既定値(後方互換)
 export const PENDING_LIMIT = 100;
 export const PENDING_WARN  = 80;
 export const AUTO_CLEANUP_DAYS = 7;
+
+// ============================================================
+// 画質プリセット(端末保存サイズ/送信の安定性とのトレードオフ)
+//   maxLongSide: 保存画像の長辺px  jpeg: JPEG品質  capW/capH: カメラ要求解像度
+// ============================================================
+export const QUALITY_PRESETS = Object.freeze({
+  standard: { label: "標準",   maxLongSide: 1600, jpeg: 0.82, capW: 1600, capH: 1200 },
+  high:     { label: "高画質", maxLongSide: 2048, jpeg: 0.90, capW: 2048, capH: 1536 },
+  max:      { label: "最高",   maxLongSide: 2560, jpeg: 0.92, capW: 2560, capH: 1920 },
+});
+export const DEFAULT_QUALITY = "high";  // v1.8.0: 既定を高画質に
 
 // ============================================================
 // カメラ
 // ============================================================
 export const CAMERA_DEFAULTS = Object.freeze({
   facing: "environment",
-  width:  1600,
-  height: 1200,
+  width:  2048,
+  height: 1536,
 });
 
 export const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]/g;

@@ -1,13 +1,14 @@
 // js/app.js
-// 北方カメラ v1.7.0 - 施工段階3ボタン固定版
+// 北方カメラ v1.8.0 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
   SHEETS_ID,
   FALLBACK_PROJECT, FALLBACK_BUILDINGS, FALLBACK_FIXTURES,
-  FILENAME_TEMPLATE, JPEG_QUALITY, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
+  FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
-} from "./config.js?v=1.7.0";
+  QUALITY_PRESETS, DEFAULT_QUALITY,
+} from "./config.js?v=1.8.0";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -15,24 +16,28 @@ import {
   getLastFixture, setLastFixture, getLastStage, setLastStage,
   nextSeq, rollbackSeq, peekSeq,
   saveConfigCache, loadConfigCache,
-} from "./storage.js?v=1.7.0";
+  getQuality, setQuality,
+} from "./storage.js?v=1.8.0";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.7.0";
-import { startCamera, switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom } from "./camera.js?v=1.7.0";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.7.0";
-import { readAllConfig } from "./sheets.js?v=1.7.0";
+} from "./ui.js?v=1.8.0";
+import {
+  startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
+  switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
+} from "./camera.js?v=1.8.0";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.0";
+import { readAllConfig } from "./sheets.js?v=1.8.0";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.7.0";
+} from "./gas-uploader.js?v=1.8.0";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.7.0";
+} from "./photoStore.js?v=1.8.0";
 
 const { $, $$ } = dom;
 
@@ -41,7 +46,6 @@ const { $, $$ } = dom;
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
 const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
-const FAST_PHOTO_MAX_LONG_SIDE = 1600;  // v1.7.0: 画質向上
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
 const BACKGROUND_UPLOAD_PAUSE_MS_MOBILE = 1800;
@@ -80,10 +84,14 @@ const state = {
   fixture:       getLastFixture(),
   stage:         getLastStage(),
 
+  quality:       resolveQuality(getQuality()),  // 画質プリセットのキー
+
   cameraOn:      false,
   cameraTrack:   null,
   torchSupported: false,
   torchOn:        false,
+
+  // ズーム(メインレンズ上の値)
   zoomMode:       "digital",
   zoom:           1,
   zoomMin:        1,
@@ -91,6 +99,17 @@ const state = {
   zoomStep:       0.1,
   pinchStartDist: 0,
   pinchStartZoom: 1,
+
+  // レンズ/スライダー
+  lens:          "main",   // "main" | "ultra"
+  hasUltra:      false,    // 超広角レンズ(別デバイス)が使えるか
+  ultraDeviceId: "",
+  mainDeviceId:  "",
+  uiZoom:        1,        // スライダー表示倍率(0.5=超広角, 1.0=標準)
+  uiMin:         1,
+  uiMax:         4,
+  lensSwitching: false,
+  lensTimer:     null,
 
   uploading:     false,   // 送信中(バックグラウンド/未送信一括)
   capturing:     false,   // 撮影画像作成・端末保存中だけ true
@@ -338,6 +357,7 @@ function initEvents() {
   $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
   const lightBtn = $("#btnLight"); if (lightBtn) lightBtn.addEventListener("click", onToggleLight);
   initPinchZoom();
+  initZoomSlider();
 
   // 未送信
   $("#outboxCard").addEventListener("click", openOutbox);
@@ -350,6 +370,7 @@ function initEvents() {
   const quickMenu = $("#quickOpenMenu"); if (quickMenu) quickMenu.addEventListener("click", openMenu);
   $$("[data-close-menu]").forEach(el => el.addEventListener("click", closeMenu));
   $("#menuPhotographer").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
+  const qBtn = $("#menuQuality"); if (qBtn) qBtn.addEventListener("click", async () => { closeMenu(); await pickQuality(); });
   $("#menuReloadConfig").addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
   $("#menuTestGas").addEventListener("click", async () => { closeMenu(); await onTestGas(); });
   const gasSetBtn = $("#menuSetGasUrl");
@@ -412,7 +433,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.7.0");
+  url.searchParams.set("v", "1.8.0");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -612,6 +633,31 @@ async function pickStage() {
   if (v) selectStage(v);
 }
 
+async function pickQuality() {
+  const cur = state.quality;
+  const options = Object.entries(QUALITY_PRESETS).map(([k, p]) => ({
+    value: k,
+    label: p.label,
+    sublabel: `長辺${p.maxLongSide}px / JPEG ${Math.round(p.jpeg * 100)}%${k === cur ? " ・現在" : ""}`,
+  }));
+  const v = await pickFromList({
+    title: "画質を選ぶ(高いほど鮮明・送信は重くなります)",
+    options,
+    selectedValue: cur,
+  });
+  if (v && QUALITY_PRESETS[v] && v !== cur) {
+    state.quality = v;
+    setQuality(v);
+    toastInfo(`画質を「${QUALITY_PRESETS[v].label}」に設定`);
+    // 解像度の要求値を反映するためカメラを再起動
+    if (state.cameraOn && getCurrentScreen() === "camera") {
+      stopCameraFlow();
+      await startCameraFlow();
+      renderBoard();
+    }
+  }
+}
+
 /* ============================================================ Menu */
 
 function openMenu()  { $("#menu").classList.add("open"); }
@@ -624,21 +670,33 @@ function openDebug() {
 }
 function closeDebug() { $("#debugPanel").classList.remove("open"); }
 
+/* ============================================================ 画質 */
+
+function resolveQuality(key) {
+  return (key && QUALITY_PRESETS[key]) ? key : DEFAULT_QUALITY;
+}
+function activeQuality() {
+  return QUALITY_PRESETS[state.quality] || QUALITY_PRESETS[DEFAULT_QUALITY];
+}
+
 /* ============================================================ Camera */
 
 async function startCameraFlow() {
   const video = $("#videoEl");
+  const q = activeQuality();
   try {
     const track = await startCamera(video, {
       facingMode: CAMERA_DEFAULTS.facing,
-      width:  CAMERA_DEFAULTS.width,
-      height: CAMERA_DEFAULTS.height,
+      width:  q.capW,
+      height: q.capH,
     });
     state.cameraOn = true;
     state.cameraTrack = track;
+    state.lens = "main";
     state.torchOn = false;
     updateLightButton();
-    await initWideZoom(track);
+    await detectLenses(track);
+    await initMainZoom(track);
     setTimeout(renderBoard, 80);
   } catch (e) {
     state.cameraOn = false;
@@ -669,9 +727,11 @@ async function onSwitchCamera() {
     }
     const track = await switchCamera($("#videoEl"));
     state.cameraTrack = track;
+    state.lens = "main";
     state.torchOn = false;
     updateLightButton();
-    await initWideZoom(track);
+    await detectLenses(track);
+    await initMainZoom(track);
     setTimeout(renderBoard, 80);
   } catch (e) { toastError(e.message); }
 }
@@ -707,7 +767,7 @@ function updateLightButton() {
 }
 
 
-/* ============================================================ Pinch Zoom */
+/* ============================================================ レンズ検出・ズーム */
 
 function resetZoomState() {
   state.zoomMode = "digital";
@@ -717,26 +777,172 @@ function resetZoomState() {
   state.zoomStep = 0.1;
   state.pinchStartDist = 0;
   state.pinchStartZoom = 1;
+  state.lens = "main";
+  state.uiZoom = 1;
+  state.uiMin = 1;
+  state.uiMax = 4;
   applyZoomDisplay();
+  updateZoomSlider();
 }
 
-async function initWideZoom(track) {
+// 背面カメラの中からメイン/超広角レンズを推定する。
+// ラベルは iOS Safari では「背面超広角カメラ」等が取れる。Android では取れないことが多い。
+async function detectLenses(track) {
+  state.hasUltra = false;
+  state.ultraDeviceId = "";
+  state.mainDeviceId = getCurrentDeviceId() || "";
+  try {
+    const settings = (track && track.getSettings) ? track.getSettings() : {};
+    if (settings && settings.facingMode === "user") return;  // 前面カメラは対象外
+
+    const inputs = await listVideoInputs();
+    if (!inputs || inputs.length < 2) return;
+
+    const curId = getCurrentDeviceId() || (settings && settings.deviceId) || "";
+    if (curId) state.mainDeviceId = curId;
+
+    const isFront = (l) => /front|face|内側|前面|self/i.test(l);
+    const isUltra = (l) => /ultra|超広角|0\.5/i.test(l) || (/wide|広角/i.test(l) && !/tele|望遠/i.test(l));
+
+    const backs = inputs.filter(d => !isFront(d.label || ""));
+    const ultra = backs.find(d => d.deviceId && d.deviceId !== state.mainDeviceId && isUltra(d.label || ""));
+    if (ultra && ultra.deviceId) {
+      state.hasUltra = true;
+      state.ultraDeviceId = ultra.deviceId;
+      dbg(`超広角レンズ検出: ${ultra.label || ultra.deviceId.slice(0, 8)}`);
+    }
+  } catch (e) {
+    dbg(`レンズ検出エラー: ${e.message || e}`);
+  }
+}
+
+async function initMainZoom(track) {
   const caps = getZoomCapabilities(track);
   if (caps && caps.max > caps.min) {
     state.zoomMode = "hardware";
     state.zoomMin = caps.min;
-    state.zoomMax = Math.min(caps.max, Math.max(caps.min, 6));
+    state.zoomMax = Math.min(caps.max, Math.max(caps.min, 8));
     state.zoomStep = caps.step || 0.1;
-    state.zoom = caps.min;
-    await setCameraZoom(track, caps.min); // できるだけ広角側で開始
+    state.zoom = Math.max(1, caps.min);  // 標準(1×)で開始
+    await setCameraZoom(track, state.zoom);
   } else {
     state.zoomMode = "digital";
     state.zoomMin = 1;
     state.zoomMax = 4;
     state.zoomStep = 0.05;
-    state.zoom = 1; // デジタルズームなし = 最広角
+    state.zoom = 1;
   }
+  // スライダー範囲: 超広角があれば 0.5× まで、無ければメインレンズの最小まで
+  state.uiMin = state.hasUltra ? Math.min(0.5, state.zoomMin) : state.zoomMin;
+  state.uiMax = state.zoomMax;
+  state.uiZoom = clampNum(state.zoom, state.uiMin, state.uiMax);
   applyZoomDisplay();
+  updateZoomSlider();
+}
+
+// レンズ切替後のメインズーム再初期化(uiレンジは維持)
+function initMainZoomCaps(track) {
+  const caps = getZoomCapabilities(track);
+  if (caps && caps.max > caps.min) {
+    state.zoomMode = "hardware";
+    state.zoomMin = caps.min;
+    state.zoomMax = Math.min(caps.max, Math.max(caps.min, 8));
+    state.zoomStep = caps.step || 0.1;
+  } else {
+    state.zoomMode = "digital";
+    state.zoomMin = 1;
+    state.zoomMax = 4;
+    state.zoomStep = 0.05;
+  }
+  state.uiMax = Math.max(state.uiMax, state.zoomMax);
+}
+
+/* --- ズームスライダー --- */
+
+function initZoomSlider() {
+  const slider = $("#zoomSlider");
+  if (!slider) return;
+  slider.addEventListener("input", () => {
+    const v = parseFloat(slider.value);
+    if (Number.isFinite(v)) onZoomSlider(v);
+  });
+}
+
+function onZoomSlider(v) {
+  v = clampNum(v, state.uiMin, state.uiMax);
+  state.uiZoom = v;
+  const wantUltra = state.hasUltra && v < 1.0 - 1e-3;
+  // メインレンズ域の変更は即時反映(なめらか)。レンズ切替が必要な時はデバウンス。
+  if (!wantUltra && state.lens === "main") {
+    setZoom(v);
+  } else {
+    updateZoomBadge();
+  }
+  scheduleLensReconcile();
+}
+
+function scheduleLensReconcile() {
+  if (state.lensTimer) clearTimeout(state.lensTimer);
+  state.lensTimer = setTimeout(reconcileLens, 200);
+}
+
+async function reconcileLens() {
+  if (state.lensSwitching || !state.cameraOn) return;
+  const v = state.uiZoom;
+  const wantUltra = state.hasUltra && v < 1.0 - 1e-3;
+  if (wantUltra && state.lens !== "ultra") {
+    await switchLens("ultra");
+  } else if (!wantUltra && state.lens !== "main") {
+    await switchLens("main");
+    await setZoom(Math.max(1, v));
+  }
+}
+
+async function switchLens(target) {
+  if (state.lensSwitching) return;
+  const deviceId = target === "ultra" ? state.ultraDeviceId : state.mainDeviceId;
+  if (target === "ultra" && !deviceId) return;
+  state.lensSwitching = true;
+  const video = $("#videoEl");
+  const q = activeQuality();
+  try {
+    if (state.torchOn && state.cameraTrack) { try { await setTorch(state.cameraTrack, false); } catch (e) {} }
+    let track;
+    if (deviceId) {
+      track = await startCameraByDeviceId(video, deviceId, { width: q.capW, height: q.capH });
+    } else {
+      track = await startCamera(video, { facingMode: CAMERA_DEFAULTS.facing, width: q.capW, height: q.capH });
+    }
+    state.cameraTrack = track;
+    state.lens = target;
+    state.torchOn = false;
+    updateLightButton();
+    if (target === "ultra") {
+      state.zoomMode = "ultra";   // 追加ズームなし。超広角の画角をそのまま使う
+      state.zoom = 1;
+    } else {
+      initMainZoomCaps(track);
+    }
+    applyZoomDisplay();
+    updateZoomSlider();
+    setTimeout(renderBoard, 80);
+    dbg(`レンズ切替: ${target}`);
+  } catch (e) {
+    dbg(`レンズ切替失敗(${target}): ${e.message || e}`);
+    if (target === "ultra") {
+      // 超広角が使えないと分かったので以後は無効化し、メインへ戻す
+      state.hasUltra = false;
+      state.uiMin = state.zoomMin;
+      state.uiZoom = Math.max(1, state.uiZoom);
+      state.lensSwitching = false;
+      try { await switchLens("main"); } catch (e2) {}
+      updateZoomSlider();
+      toastInfo("この端末では超広角に切り替えできませんでした");
+      return;
+    }
+  } finally {
+    state.lensSwitching = false;
+  }
 }
 
 function initPinchZoom() {
@@ -744,27 +950,28 @@ function initPinchZoom() {
   if (!wrap) return;
 
   wrap.addEventListener("touchstart", (ev) => {
-    if (ev.target && ev.target.closest && ev.target.closest("button")) return;
+    if (ev.target && ev.target.closest && ev.target.closest("button, input")) return;
     if (ev.touches.length === 2) {
       state.pinchStartDist = touchDistance(ev.touches[0], ev.touches[1]);
-      state.pinchStartZoom = state.zoom;
+      state.pinchStartZoom = state.uiZoom;
     }
   }, { passive: true });
 
   wrap.addEventListener("touchmove", (ev) => {
-    if (ev.target && ev.target.closest && ev.target.closest("button")) return;
+    if (ev.target && ev.target.closest && ev.target.closest("button, input")) return;
     if (ev.touches.length === 2 && state.pinchStartDist > 0) {
       ev.preventDefault();
       const d = touchDistance(ev.touches[0], ev.touches[1]);
       const ratio = d / state.pinchStartDist;
-      setZoom(state.pinchStartZoom * ratio);
+      onZoomSlider(state.pinchStartZoom * ratio);
+      updateZoomSlider();
     }
   }, { passive: false });
 
   wrap.addEventListener("touchend", (ev) => {
     if (ev.touches.length < 2) {
       state.pinchStartDist = 0;
-      state.pinchStartZoom = state.zoom;
+      state.pinchStartZoom = state.uiZoom;
     }
   }, { passive: true });
 }
@@ -777,7 +984,7 @@ function touchDistance(a, b) {
 
 async function setZoom(rawZoom) {
   const stepped = Math.round(rawZoom / state.zoomStep) * state.zoomStep;
-  const z = Math.max(state.zoomMin, Math.min(state.zoomMax, stepped));
+  const z = clampNum(stepped, state.zoomMin, state.zoomMax);
   state.zoom = z;
   if (state.zoomMode === "hardware" && state.cameraTrack) {
     const ok = await setCameraZoom(state.cameraTrack, z);
@@ -785,7 +992,7 @@ async function setZoom(rawZoom) {
       state.zoomMode = "digital";
       state.zoomMin = 1;
       state.zoomMax = 4;
-      state.zoom = Math.max(1, Math.min(4, z));
+      state.zoom = clampNum(z, 1, 4);
     }
   }
   applyZoomDisplay();
@@ -793,19 +1000,42 @@ async function setZoom(rawZoom) {
 
 function applyZoomDisplay() {
   const video = $("#videoEl");
-  const badge = $("#zoomBadge");
   if (video) {
-    if (state.zoomMode === "digital" && state.zoom > 1.001) {
+    if (state.lens === "main" && state.zoomMode === "digital" && state.zoom > 1.001) {
       video.style.transform = `scale(${state.zoom})`;
     } else {
       video.style.transform = "";
     }
   }
-  if (badge) {
-    const show = state.cameraOn && state.zoom > state.zoomMin + 0.01;
-    badge.hidden = !show;
-    badge.textContent = `${state.zoom.toFixed(1)}×`;
-  }
+  updateZoomBadge();
+}
+
+function updateZoomBadge() {
+  const badge = $("#zoomBadge");
+  if (!badge) return;
+  badge.hidden = !state.cameraOn;
+  badge.textContent = `${formatZoom(state.uiZoom)}×`;
+}
+
+function updateZoomSlider() {
+  const slider = $("#zoomSlider");
+  if (!slider) return;
+  slider.min = String(state.uiMin);
+  slider.max = String(state.uiMax);
+  slider.step = "0.1";
+  slider.value = String(state.uiZoom);
+  slider.hidden = !state.cameraOn;
+  const wrap = $("#zoomSliderWrap");
+  if (wrap) wrap.hidden = !state.cameraOn;
+  updateZoomBadge();
+}
+
+function formatZoom(v) {
+  return (Math.round(v * 10) / 10).toFixed(1);
+}
+
+function clampNum(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
 }
 
 /* ============================================================ 黒板表示 */
@@ -957,14 +1187,15 @@ async function onShoot() {
       f: shotDate,   // 撮影日(黒板の最下行 左側に焼き込む)
     };
 
+    const q = activeQuality();
     const result = await composePhoto(source, {
       boardRect:   FIXED_BOARD_RECT,
       labels, values,
-      jpegQuality: JPEG_QUALITY || 0.82,
+      jpegQuality: q.jpeg,
       cropToRatio: true,
       alsoNoBoard: ALWAYS_NO_BOARD,
-      maxLongSide: FAST_PHOTO_MAX_LONG_SIDE,
-      digitalZoom: state.zoomMode === "digital" ? state.zoom : 1,
+      maxLongSide: q.maxLongSide,
+      digitalZoom: (state.lens === "main" && state.zoomMode === "digital") ? state.zoom : 1,
     });
 
     shutterSound();

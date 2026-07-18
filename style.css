@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.7.0 ・ 施工段階3ボタン固定版
+   北方カメラ v1.8.0 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -277,6 +277,67 @@ input { font: inherit; color: inherit; }
   backdrop-filter: blur(4px);
 }
 .zoom-badge[hidden] { display: none; }
+
+/* ============================================================ ズームスライダー */
+
+.zoom-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--well-soft);
+}
+.zoom-slider-wrap[hidden] { display: none; }
+.zoom-slider-wrap .zs-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sub);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.zoom-slider {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+.zoom-slider:focus { outline: none; }
+/* トラック */
+.zoom-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  box-shadow: var(--well-soft);
+}
+.zoom-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+}
+/* つまみ */
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px; height: 26px;
+  margin-top: -10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(40,60,100,.3);
+}
+.zoom-slider::-moz-range-thumb {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(40,60,100,.3);
+}
 
 /* ============================================================ 黒板オーバーレイ(固定) */
 

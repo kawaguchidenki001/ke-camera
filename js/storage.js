@@ -119,6 +119,12 @@ export function setLastFixture(f) { localStorage.setItem(KEYS.LAST_FIXTURE, f); 
 export function getLastStage()    { return localStorage.getItem(KEYS.LAST_STAGE) || ""; }
 export function setLastStage(s)   { localStorage.setItem(KEYS.LAST_STAGE, s); }
 
+/* ============================================================ 画質設定 */
+
+const QUALITY_KEY = "kc:quality";
+export function getQuality()      { return localStorage.getItem(QUALITY_KEY) || ""; }
+export function setQuality(q)     { try { localStorage.setItem(QUALITY_KEY, q || ""); } catch (e) {} }
+
 /* ============================================================ 連番(部屋+日付ごと) */
 
 export function nextSeq(roomKey, dateStr) {
