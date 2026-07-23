@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.8.2 ・ 施工段階3ボタン固定版
+   北方カメラ v1.8.3 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -423,31 +423,21 @@ input { font: inherit; color: inherit; }
   white-space: nowrap;
   transform-origin: center center;
 }
-/* 撮影日(左) + 会社名(右)、小さめ */
+/* 会社名(右下、小さめ) */
 .bov-co {
   color: #ffffff;
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
-  gap: 3%;
-  padding: 0 4% 3% 4%;
+  justify-content: flex-end;
+  padding: 0 4% 3% 0;
   font-weight: 800;
   overflow: hidden;
 }
-.bov-co-l, .bov-co-r {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  align-items: flex-end;
-  overflow: hidden;
-}
-.bov-co-r { justify-content: flex-end; }
 .bov-co .bv-t {
   display: inline-block;
   white-space: nowrap;
+  transform-origin: right bottom;
 }
-.bov-co-l .bv-t { transform-origin: left bottom; }
-.bov-co-r .bv-t { transform-origin: right bottom; }
 
 /* ============================================================ 次の連番ヒント */
 

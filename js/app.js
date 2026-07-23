@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.8.2 - 施工段階3ボタン固定版
+// 北方カメラ v1.8.3 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
-} from "./config.js?v=1.8.2";
+} from "./config.js?v=1.8.3";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -18,27 +18,27 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.8.2";
+} from "./storage.js?v=1.8.3";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.8.2";
+} from "./ui.js?v=1.8.3";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.8.2";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.2";
-import { readAllConfig } from "./sheets.js?v=1.8.2";
+} from "./camera.js?v=1.8.3";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.3";
+import { readAllConfig } from "./sheets.js?v=1.8.3";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.8.2";
+} from "./gas-uploader.js?v=1.8.3";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.8.2";
+} from "./photoStore.js?v=1.8.3";
 
 const { $, $$ } = dom;
 
@@ -251,6 +251,13 @@ function populateProjectInfo() {
 
   const photogShow = $("#menuPhotogShow");
   if (photogShow) photogShow.textContent = state.photographer ? `撮影者: ${state.photographer}` : "撮影者: 未設定";
+
+  updateQualityMenuLabel();
+}
+
+function updateQualityMenuLabel() {
+  const btn = $("#menuQuality");
+  if (btn) btn.textContent = `画質を変更(現在: ${activeQuality().label})`;
 }
 
 function refreshChips() {
@@ -436,7 +443,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.8.2");
+  url.searchParams.set("v", "1.8.3");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -651,6 +658,7 @@ async function pickQuality() {
   if (v && QUALITY_PRESETS[v] && v !== cur) {
     state.quality = v;
     setQuality(v);
+    updateQualityMenuLabel();
     toastInfo(`画質を「${QUALITY_PRESETS[v].label}」に設定`);
     // 解像度の要求値を反映するためカメラを再起動
     if (state.cameraOn && getCurrentScreen() === "camera") {
@@ -1191,14 +1199,13 @@ function renderBoard() {
   const fixture  = state.fixture || "";
   const stage    = state.stage || "";
   const company  = state.project.company || "";
-  const dateStr  = todayYmd();
 
   ov.innerHTML =
     `<div class="bov-row" style="height:${pct(BROWH.a)}"><div class="bov-lb"><span class="bv-l">工事名</span></div><div class="bov-vl"><span class="bv-t" data-k="a">${esc(projName)}</span></div></div>` +
     `<div class="bov-row" style="height:${pct(BROWH.b)}"><div class="bov-lb"><span class="bv-l">場所</span></div><div class="bov-vl"><span class="bv-t" data-k="b">${esc(place)}</span></div></div>` +
     `<div class="bov-lf"  style="height:${pct(BROWH.c)}"><span class="bv-t" data-k="c">${esc(fixture)}</span></div>` +
     `<div class="bov-stage" style="height:${pct(BROWH.d)}"><span class="bv-t" data-k="d">${esc(stage)}</span></div>` +
-    `<div class="bov-co"    style="height:${pct(BROWH.e)}"><span class="bov-co-l"><span class="bv-t" data-k="f">${esc(dateStr)}</span></span><span class="bov-co-r"><span class="bv-t" data-k="e">${esc(company)}</span></span></div>`;
+    `<div class="bov-co"    style="height:${pct(BROWH.e)}"><span class="bv-t" data-k="e">${esc(company)}</span></div>`;
   ov.style.display = "block";
   layoutBoard();
 }
@@ -1229,8 +1236,7 @@ function layoutBoard() {
   setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
   setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.72, bw); // 施工段階は中央で大きく
-  setRowFont(ov, ".bv-t[data-k='f']", "f", BROWH.e, 0.42, bw); // 撮影日(左)
-  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名(右)
+  setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
 
   function setSharedRowFont(rootEl, selectors, frac, factor) {
     const items = selectors
@@ -1326,7 +1332,6 @@ async function onShoot() {
       c: state.fixture || "",
       d: state.stage || "",
       e: state.project.company || "",
-      f: shotDate,   // 撮影日(黒板の最下行 左側に焼き込む)
     };
 
     const q = activeQuality();

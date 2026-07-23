@@ -1,11 +1,11 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(v1.8.2 仕様)
+// GenCan風 黒板焼き込み(v1.8.3 仕様)
 // 行構成:
 //   1) 工事名(ラベル+値、下罫線あり)
 //   2) 場所(ラベル+値、下罫線あり)
 //   3) 照明器具(左寄せ、少し小さく、下罫線なし)
 //   4) 施工段階(中央・大きめ、下罫線なし)
-//   5) 撮影日(左下) + 会社名(右下角)、小さめ、下罫線なし
+//   5) 会社名(右下角、小さめ、下罫線なし)
 
 export const BOARD_HR = 0.73;
 
@@ -188,22 +188,15 @@ function drawBoard(canvas, { boardRect, labels, values }) {
     yy += rh;
   }
 
-  // 行5: 撮影日(左下) + 会社名(右下)、小さめ
-  function rowDateCompany(dateValue, companyValue, hf) {
+  // 行5: 会社名(右下、小さめ)
+  function rowCompany(value, hf) {
     const rh = bh * hf;
     const fs = Math.max(9, Math.floor(rh * 0.42));
-    const baselineY = yy + rh - rh * 0.28;
-    // 日付と会社名が重ならないよう、各要素をおおよそ半分の幅に収める
-    const half = Math.max(10, (bw - pad * 2) / 2 - pad * 0.5);
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
-    if (dateValue) {
-      ctx.textAlign = "left";
-      ctx.fillText(dateValue, bx + pad, baselineY, half);
-    }
-    if (companyValue) {
-      ctx.textAlign = "right";
-      ctx.fillText(companyValue, bx + bw - pad, baselineY, half);
+    ctx.textAlign = "right";
+    if (value) {
+      ctx.fillText(value, bx + bw - pad, yy + rh - rh * 0.28, bw - pad * 2);
     }
     yy += rh;
   }
@@ -213,7 +206,7 @@ function drawBoard(canvas, { boardRect, labels, values }) {
   rowLV(labels.b || "場所",   values.b || "", BROWH.b, sharedTopFs);
   rowLeft(values.c || "", BROWH.c);
   rowStage(values.d || "", BROWH.d);
-  rowDateCompany(values.f || "", values.e || "", BROWH.e);
+  rowCompany(values.e || "", BROWH.e);
 }
 
 /* ============================================================ utilities */
