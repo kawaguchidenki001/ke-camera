@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.8.4 ・ 施工段階3ボタン固定版
+   北方カメラ v1.8.5 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -585,48 +585,59 @@ input { font: inherit; color: inherit; }
 .bshoot-bar .savebtn:disabled { opacity: 0.45; }
 
 /* ============================================================ 横向き(ランドスケープ)レイアウト
-   スマホを横に持ったとき: カメラを左いっぱいに、操作類を右列に置き、
-   スクロールせずに撮影ボタンまで届くようにする */
+   スマホを横に持ったとき: カメラを画面全体に広げ、右側に丸い撮影ボタン
+   だけを重ねる(棟/部屋などの設定は縦向きで行う) */
 
 @media (orientation: landscape) and (max-height: 600px) {
-  .app-main {
-    max-width: none;
-    padding: 8px 12px 12px;
-  }
-  .screen.active.camera-screen {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-auto-rows: min-content;
-    column-gap: 12px;
-    align-items: start;
-  }
+  /* カメラビューを全画面に */
   .camera-screen .bcam-wrap {
-    grid-column: 1;
-    grid-row: 1 / span 9;
-    /* 高さいっぱいの4:3(はみ出す場合は幅62vwまで) */
-    width: min(62vw, calc((100vh - 30px) * 4 / 3));
-    width: min(62vw, calc((100dvh - 30px) * 4 / 3));
-    margin-bottom: 0;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    aspect-ratio: auto;
+    border-radius: 0;
+    margin: 0;
+    box-shadow: none;
+    z-index: 40;
   }
+  /* 撮影ボタン以外の操作類は隠す(ピンチでズームは可能) */
   .camera-screen .chip-row,
   .camera-screen .zoom-slider-wrap,
   .camera-screen .stage-picker,
   .camera-screen .next-hint,
   .camera-screen .last-shot,
-  .camera-screen .outbox-card,
-  .camera-screen .bshoot-bar {
-    grid-column: 2;
+  .camera-screen .outbox-card {
+    display: none;
   }
-  .camera-screen .chip-row { margin-bottom: 8px; }
-  .camera-screen .stage-picker { margin-bottom: 6px; }
-  .camera-screen .next-hint { margin: 2px 0 6px; }
-  /* 撮影ボタンは画面下固定をやめて右列に置く */
+  /* 撮影ボタン: 右側中央に丸ボタンで重ねる */
   .camera-screen .bshoot-bar {
-    position: static;
+    position: fixed;
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 16px);
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    z-index: 50;
     padding: 0;
     background: transparent;
     box-shadow: none;
-    margin-top: 2px;
+  }
+  .camera-screen .bshoot-bar .savebtn {
+    width: 80px;
+    height: 80px;
+    min-height: 0;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 0;   /* 文字は隠してカメラアイコンのみ表示 */
+    gap: 0;
+    border: 4px solid rgba(255,255,255,.9);
+    box-shadow: 0 4px 14px rgba(0,0,0,.35);
+  }
+  .camera-screen .bshoot-bar .savebtn svg {
+    width: 32px;
+    height: 32px;
   }
 }
 
