@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.8.5 - 施工段階3ボタン固定版
+// 北方カメラ v1.8.6 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
-} from "./config.js?v=1.8.5";
+} from "./config.js?v=1.8.6";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -18,27 +18,27 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.8.5";
+} from "./storage.js?v=1.8.6";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.8.5";
+} from "./ui.js?v=1.8.6";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.8.5";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.5";
-import { readAllConfig } from "./sheets.js?v=1.8.5";
+} from "./camera.js?v=1.8.6";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.6";
+import { readAllConfig } from "./sheets.js?v=1.8.6";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.8.5";
+} from "./gas-uploader.js?v=1.8.6";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.8.5";
+} from "./photoStore.js?v=1.8.6";
 
 const { $, $$ } = dom;
 
@@ -448,7 +448,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.8.5");
+  url.searchParams.set("v", "1.8.6");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -1224,8 +1224,11 @@ function layoutBoard() {
 
   let bw = W * FIXED_BOARD_RECT.w;
   let bh = bw * BOARD_HR;
-  if (bh > H * 0.9) {
-    bh = H * 0.9;
+  // プレビュー表示のみの調整: 横向き全画面など画面が低い場合に
+  // 黒板が視野を覆いすぎないよう、表示高さを画面の45%までに抑える。
+  // (保存されるJPEGの黒板サイズは composer 側で決まるため変わらない)
+  if (bh > H * 0.45) {
+    bh = H * 0.45;
     bw = bh / BOARD_HR;
   }
   const x = 0;                 // 左端
