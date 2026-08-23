@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.8.6 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.0 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
-} from "./config.js?v=1.8.6";
+} from "./config.js?v=1.9.0";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -18,27 +18,28 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.8.6";
+} from "./storage.js?v=1.9.0";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.8.6";
+} from "./ui.js?v=1.9.0";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.8.6";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.8.6";
-import { readAllConfig } from "./sheets.js?v=1.8.6";
+} from "./camera.js?v=1.9.0";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.0";
+import { readAllConfig } from "./sheets.js?v=1.9.0";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.0";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.8.6";
+} from "./gas-uploader.js?v=1.9.0";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.8.6";
+} from "./photoStore.js?v=1.9.0";
 
 const { $, $$ } = dom;
 
@@ -448,7 +449,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.8.6");
+  url.searchParams.set("v", "1.9.0");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -602,6 +603,12 @@ async function pickRoom() {
     }
     state.room = v;
     setLastRoom(v);
+    // 部屋ごとの器具一覧がある場合、選択中の記号がその部屋に無ければクリアする
+    const roomList = getRoomFixtures(state.building, state.room);
+    if (roomList && state.fixture && !roomList.includes(state.fixture)) {
+      state.fixture = "";
+      setLastFixture("");
+    }
     refreshChips();
     renderBoard();
   }
@@ -622,13 +629,20 @@ async function manageCustomRooms(building) {
   }
 }
 
-async function pickFixture() {
-  if (!state.fixtures || state.fixtures.length === 0) { toastError("照明器具が未設定"); return; }
+async function pickFixture({ showAll = false } = {}) {
+  // 部屋を選択済みなら、その部屋で使用する記号だけを表示する
+  const roomList = showAll ? null : getRoomFixtures(state.building, state.room);
+  const list = roomList || state.fixtures || [];
+  if (list.length === 0) { toastError("照明器具が未設定"); return; }
   const v = await pickFromList({
-    title: "照明器具を選ぶ",
-    options: state.fixtures.map(f => ({ value: f, label: f })),
+    title: roomList ? `${state.building}-${state.room} の照明器具` : "照明器具を選ぶ",
+    options: list.map(f => ({ value: f, label: f })),
     allowInput: true, inputPlaceholder: "自由入力する照明器具…",
     selectedValue: state.fixture,
+    footerButton: roomList ? {
+      label: "全ての記号から選ぶ",
+      onClick: (close) => { close(null); pickFixture({ showAll: true }); },
+    } : null,
   });
   if (v) {
     state.fixture = v;
