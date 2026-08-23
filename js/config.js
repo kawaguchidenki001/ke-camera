@@ -94,6 +94,11 @@ export const QUALITY_PRESETS = Object.freeze({
 export const DEFAULT_QUALITY = "high";  // v1.9.1: 既定を高画質に
 
 // ============================================================
+// 図面アプリ(kitagata-zumen)連携
+// ============================================================
+export const ZUMEN_APP_URL = "https://kawaguchidenki001.github.io/kitagata-zumen/";
+
+// ============================================================
 // カメラ
 // ============================================================
 export const CAMERA_DEFAULTS = Object.freeze({

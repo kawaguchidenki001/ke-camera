@@ -8,6 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
+  ZUMEN_APP_URL,
 } from "./config.js?v=1.9.1";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
@@ -317,6 +318,15 @@ function refreshChips() {
   setChip("Fixture",  state.fixture);
   renderStageButtons();
 
+  // 図面を開くボタン(棟と部屋を選択済みのとき表示)
+  const zumenBtn = $("#btnOpenZumen");
+  if (zumenBtn) {
+    const ready = !!(state.building && state.room);
+    zumenBtn.hidden = !ready;
+    const val = $("#zumenBtnVal");
+    if (val) val.textContent = ready ? `${state.building}-${state.room} の図面` : "図面を開く";
+  }
+
   // 次の連番ヒント
   const roomKey = makeRoomKey(state.building, state.room);
   if (roomKey) {
@@ -410,6 +420,7 @@ function initEvents() {
   $("#chipBuilding").addEventListener("click", pickBuilding);
   $("#chipRoom").addEventListener("click", pickRoom);
   $("#chipFixture").addEventListener("click", pickFixture);
+  const zumenBtn = $("#btnOpenZumen"); if (zumenBtn) zumenBtn.addEventListener("click", openZumen);
   const chipStage = $("#chipStage"); if (chipStage) chipStage.addEventListener("click", pickStage);
 
   // 撮影
@@ -736,6 +747,23 @@ async function pickQuality() {
       renderBoard();
     }
   }
+}
+
+/* ============================================================ 図面アプリ連携 */
+
+function openZumen() {
+  if (!(state.building && state.room)) {
+    toastInfo("先に棟と部屋を選んでください");
+    return;
+  }
+  // 図面アプリ(kitagata-zumen)は起動時に kzLastRoom(同一オリジンのlocalStorage)を
+  // 復元してその部屋のビューアを直接開くため、開く前に選択中の棟・部屋を書き込む。
+  try {
+    localStorage.setItem("kzLastRoom", JSON.stringify({ b: state.building, r: state.room }));
+  } catch (e) {}
+  // 将来のURLパラメータ対応用に ?b=&r= も付けて開く
+  const url = `${ZUMEN_APP_URL}?b=${encodeURIComponent(state.building)}&r=${encodeURIComponent(state.room)}`;
+  window.open(url, "_blank", "noopener");
 }
 
 /* ============================================================ Menu */

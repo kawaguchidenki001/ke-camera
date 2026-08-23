@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.9.0 ・ 施工段階3ボタン固定版
+   北方カメラ v1.9.1 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -165,6 +165,15 @@ input { font: inherit; color: inherit; }
   opacity: .55;
   font-weight: 500;
 }
+/* 図面を開くボタン(チップ4つ目のマス) */
+.chip.chip-zumen {
+  background: var(--accent-soft);
+  border: 1px solid rgba(13,154,160,.35);
+}
+.chip.chip-zumen .chip-label { color: var(--accent-d); }
+.chip.chip-zumen .chip-value { color: var(--accent-d); }
+.chip.chip-zumen::after { content: "↗"; color: var(--accent-d); font-weight: 800; }
+.chip.chip-zumen[hidden] { display: none; }
 
 /* ============================================================ 施工段階ボタン */
 
