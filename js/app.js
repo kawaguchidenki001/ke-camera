@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.0 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.1 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -8,7 +8,7 @@ import {
   FILENAME_TEMPLATE, CAMERA_DEFAULTS, INVALID_FILENAME_CHARS,
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
-} from "./config.js?v=1.9.0";
+} from "./config.js?v=1.9.1";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -18,28 +18,28 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.0";
+} from "./storage.js?v=1.9.1";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.0";
+} from "./ui.js?v=1.9.1";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.9.0";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.0";
-import { readAllConfig } from "./sheets.js?v=1.9.0";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.0";
+} from "./camera.js?v=1.9.1";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.1";
+import { readAllConfig } from "./sheets.js?v=1.9.1";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.1";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.9.0";
+} from "./gas-uploader.js?v=1.9.1";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.0";
+} from "./photoStore.js?v=1.9.1";
 
 const { $, $$ } = dom;
 
@@ -128,10 +128,17 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   autoCleanupOldUploads(AUTO_CLEANUP_DAYS).catch(e => console.warn(e));
 
+  // 図面ビューアからの引き継ぎ (?b=棟&r=号室&f=記号)
+  // 設定読み込みの前後で2回適用する（通信が遅くても選択が反映されるようにし、
+  // 設定読み込み後は部屋の器具一覧に合わせて記号を解決し直す）
+  const urlParams = new URLSearchParams(location.search);
+  applyDeepLink(urlParams);
+
   // 設定読み込み(Sheets)
   await loadAppConfig();
   populateProjectInfo();
   renderStageButtons();
+  applyDeepLink(urlParams);
   refreshChips();
   await resetStaleUploading(30 * 1000);
   await refreshOutboxCard();
@@ -145,8 +152,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderBoard();
 
   // URLで直接GAS設定を開けるようにする（メニューが見えない環境向け）
-  const params = new URLSearchParams(location.search);
-  if (params.has("gas")) {
+  if (urlParams.has("gas")) {
     setTimeout(onSetGasUrl, 500);
   }
 
@@ -155,6 +161,50 @@ window.addEventListener("DOMContentLoaded", async () => {
     setTimeout(pickPhotographer, 400);
   }
 });
+
+/* ============================================================ 図面ビューア連携 */
+
+// 図面ビューア(kitagata-zumen)から ?b=棟&r=号室&f=記号 で棟・部屋・照明器具を引き継ぐ
+let deepLinkNotified = false;
+function applyDeepLink(params) {
+  const b = (params.get("b") || "").trim();
+  const r = (params.get("r") || "").trim();
+  const f = (params.get("f") || "").trim();
+  if (!b && !r && !f) return;
+
+  const parts = [];
+  if (b) {
+    state.building = b;
+    setLastBuilding(b);
+    parts.push(b);
+  }
+  if (r) {
+    state.room = r;
+    setLastRoom(r);
+    // 設定に無い部屋なら端末側の追加分として登録しておく
+    const preset = (state.buildings && state.buildings[state.building]) || [];
+    const custom = (getCustomRooms()[state.building] || []);
+    if (state.building && !preset.includes(r) && !custom.includes(r)) {
+      addCustomRoom(state.building, r);
+    }
+    parts.push(r + "号室");
+  }
+  if (f) {
+    // 部屋の器具一覧に合わせて記号を解決（例: b104-2 → 一覧に無ければ b104）
+    const list = getRoomFixtures(state.building, state.room) || state.fixtures || [];
+    const base = f.replace(/-[0-9a-z]$/i, "");
+    const fixture = list.includes(f) ? f : (list.includes(base) ? base : f);
+    state.fixture = fixture;
+    setLastFixture(fixture);
+    parts.push(fixture);
+  }
+  refreshChips();
+  renderBoard();
+  if (parts.length && !deepLinkNotified) {
+    deepLinkNotified = true;
+    toastInfo(`図面ビューアから引き継ぎ: ${parts.join(" / ")}`);
+  }
+}
 
 /* ============================================================ GAS 疎通 */
 
@@ -449,7 +499,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.0");
+  url.searchParams.set("v", "1.9.1");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
