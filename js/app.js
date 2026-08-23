@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.2 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.3 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.2";
+} from "./config.js?v=1.9.3";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,28 +19,28 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.2";
+} from "./storage.js?v=1.9.3";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.2";
+} from "./ui.js?v=1.9.3";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.9.2";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.2";
-import { readAllConfig } from "./sheets.js?v=1.9.2";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.2";
+} from "./camera.js?v=1.9.3";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.3";
+import { readAllConfig } from "./sheets.js?v=1.9.3";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.3";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.9.2";
+} from "./gas-uploader.js?v=1.9.3";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.2";
+} from "./photoStore.js?v=1.9.3";
 
 const { $, $$ } = dom;
 
@@ -174,12 +174,15 @@ function applyDeepLink(params) {
   if (!b && !r && !f) return;
 
   const parts = [];
+  let changed = false;
   if (b) {
+    if (b !== state.building) changed = true;
     state.building = b;
     setLastBuilding(b);
     parts.push(b);
   }
   if (r) {
+    if (r !== state.room) changed = true;
     state.room = r;
     setLastRoom(r);
     // 設定に無い部屋なら端末側の追加分として登録しておく
@@ -195,10 +198,13 @@ function applyDeepLink(params) {
     const list = getRoomFixtures(state.building, state.room) || state.fixtures || [];
     const base = f.replace(/-[0-9a-z]$/i, "");
     const fixture = list.includes(f) ? f : (list.includes(base) ? base : f);
+    if (fixture !== state.fixture) changed = true;
     state.fixture = fixture;
     setLastFixture(fixture);
     parts.push(fixture);
   }
+  // 前と違う部屋・器具を引き継いだときは施工段階を「施工前」へ戻す
+  if (changed) resetStageToBefore();
   refreshChips();
   renderBoard();
   if (parts.length && !deepLinkNotified) {
@@ -384,6 +390,15 @@ function stageToneClass(stage) {
   return "stage-other";
 }
 
+// 部屋や照明器具を前と違うものに変えたときは、施工段階を「施工前」へ戻す
+// (新しい撮影対象は施工前から撮り始めるため、段階の戻し忘れを防ぐ)
+function resetStageToBefore() {
+  if (state.stage !== "施工前") {
+    state.stage = "施工前";
+    setLastStage(state.stage);
+  }
+}
+
 function selectStage(v) {
   if (!STAGE_BUTTONS.includes(v)) v = "施工前";
   state.stage = v;
@@ -510,7 +525,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.2");
+  url.searchParams.set("v", "1.9.3");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -637,6 +652,7 @@ async function pickBuilding() {
     state.building = v;
     setLastBuilding(v);
     state.room = ""; setLastRoom("");
+    resetStageToBefore();
     refreshChips();
     renderBoard();
   }
@@ -659,6 +675,7 @@ async function pickRoom() {
     } : null,
   });
   if (v) {
+    const roomChanged = v !== state.room;
     if (!preset.includes(v) && !custom.includes(v)) {
       addCustomRoom(state.building, v);
     }
@@ -670,6 +687,7 @@ async function pickRoom() {
       state.fixture = "";
       setLastFixture("");
     }
+    if (roomChanged) resetStageToBefore();
     refreshChips();
     renderBoard();
   }
@@ -706,8 +724,10 @@ async function pickFixture({ showAll = false } = {}) {
     } : null,
   });
   if (v) {
+    const fixtureChanged = v !== state.fixture;
     state.fixture = v;
     setLastFixture(v);
+    if (fixtureChanged) resetStageToBefore();
     refreshChips();
     renderBoard();
   }
