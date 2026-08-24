@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.3 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.4 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.3";
+} from "./config.js?v=1.9.4";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,34 +19,34 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.3";
+} from "./storage.js?v=1.9.4";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.3";
+} from "./ui.js?v=1.9.4";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.9.3";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.3";
-import { readAllConfig } from "./sheets.js?v=1.9.3";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.3";
+} from "./camera.js?v=1.9.4";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.4";
+import { readAllConfig } from "./sheets.js?v=1.9.4";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.4";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.9.3";
+} from "./gas-uploader.js?v=1.9.4";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.3";
+} from "./photoStore.js?v=1.9.4";
 
 const { $, $$ } = dom;
 
 /* ============================================================ 固定黒板レイアウト */
 
-const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.38 });
+const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.4: 黒板を従来(0.38)の90%に縮小
 const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
@@ -525,7 +525,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.3");
+  url.searchParams.set("v", "1.9.4");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }

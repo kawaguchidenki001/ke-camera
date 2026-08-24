@@ -1,5 +1,5 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(v1.9.3 仕様)
+// GenCan風 黒板焼き込み(v1.9.4 仕様)
 // 行構成:
 //   1) 工事名(ラベル+値、下罫線あり)
 //   2) 場所(ラベル+値、下罫線あり)
@@ -31,7 +31,7 @@ export const BROWH = {
  */
 export async function composePhoto(source, options) {
   const opts = options || {};
-  const boardRect   = opts.boardRect   || { x: 0, y: 1, w: 0.38 };
+  const boardRect   = opts.boardRect   || { x: 0, y: 1, w: 0.342 };
   const labels      = opts.labels      || { a: "工事名", b: "場所" };
   const values      = opts.values      || {};
   const jpegQuality = clamp(opts.jpegQuality ?? 0.92, 0.5, 1.0);

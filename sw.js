@@ -1,7 +1,7 @@
 // sw.js
 // 北方カメラ - PWA キャッシュ
 
-const VERSION = "v1.9.3";
+const VERSION = "v1.9.4";
 const APP_CACHE = `kitagata-cam-${VERSION}`;
 
 const PRECACHE = [
