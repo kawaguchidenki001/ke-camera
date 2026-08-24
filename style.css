@@ -1,5 +1,5 @@
 /* ============================================================
-   北方カメラ v1.9.5 ・ 施工段階3ボタン固定版
+   北方カメラ v1.9.6 ・ 施工段階3ボタン固定版
    ============================================================ */
 
 :root {
@@ -292,6 +292,27 @@ input { font: inherit; color: inherit; }
   backdrop-filter: blur(4px);
 }
 .zoom-badge[hidden] { display: none; }
+
+/* タップでピント合わせ時のリング */
+.focus-ring {
+  position: absolute;
+  width: 74px; height: 74px;
+  margin-left: -37px;
+  margin-top: -37px;
+  border: 2px solid #ffd34d;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 0 10px rgba(255,211,77,.5);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 12;
+}
+.focus-ring.show { animation: focusPulse .9s ease-out; }
+@keyframes focusPulse {
+  0%   { opacity: 0; transform: scale(1.5); }
+  25%  { opacity: 1; transform: scale(1); }
+  75%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(.92); }
+}
 
 /* ============================================================ ズームスライダー */
 
@@ -1039,6 +1060,26 @@ input { font: inherit; color: inherit; }
   min-width: 240px;
   box-shadow: var(--shadow-lg);
 }
+/* 確認ダイアログ(アプリ内) */
+.confirm-panel {
+  width: min(88vw, 380px);
+  padding: 22px 20px 16px;
+  text-align: left;
+}
+.confirm-text {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink);
+  white-space: pre-wrap;
+  margin-bottom: 18px;
+}
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.confirm-actions .btn { min-height: 48px; font-size: 15px; }
+
 .spinner {
   width: 44px; height: 44px;
   border: 4px solid var(--bg);

@@ -167,8 +167,35 @@ export const dom = { $, $$ };
 
 /* ============================================================ confirm dialog */
 
+// アプリ内の確認ダイアログ。
+// ブラウザ標準の window.confirm は表示中に JavaScript とタイマーを止めてしまい、
+// 裏で走っている Drive 送信がタイムアウトして失敗する原因になるため使わない。
 export function confirmDialog(message) {
   return new Promise((resolve) => {
-    resolve(window.confirm(message));
+    const modal  = $("#confirmModal");
+    const textEl = $("#confirmText");
+    const okBtn  = $("#confirmOk");
+    const cxBtn  = $("#confirmCancel");
+    const bg     = $("#confirmCancelBg");
+    if (!modal || !textEl || !okBtn || !cxBtn) {
+      resolve(window.confirm(message));   // 万一要素が無い場合の保険
+      return;
+    }
+    textEl.textContent = message;
+
+    const done = (val) => {
+      modal.classList.remove("open");
+      okBtn.removeEventListener("click", onOk);
+      cxBtn.removeEventListener("click", onCancel);
+      if (bg) bg.removeEventListener("click", onCancel);
+      resolve(val);
+    };
+    const onOk     = () => done(true);
+    const onCancel = () => done(false);
+
+    okBtn.addEventListener("click", onOk);
+    cxBtn.addEventListener("click", onCancel);
+    if (bg) bg.addEventListener("click", onCancel);
+    modal.classList.add("open");
   });
 }

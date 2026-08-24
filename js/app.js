@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.5 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.6 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.5";
+} from "./config.js?v=1.9.6";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,34 +19,35 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.5";
+} from "./storage.js?v=1.9.6";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.5";
+} from "./ui.js?v=1.9.6";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
-} from "./camera.js?v=1.9.5";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.5";
-import { readAllConfig } from "./sheets.js?v=1.9.5";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.5";
+  hasAutoFocus, enableContinuousFocus, focusAtPoint,
+} from "./camera.js?v=1.9.6";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.6";
+import { readAllConfig } from "./sheets.js?v=1.9.6";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.6";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.9.5";
+} from "./gas-uploader.js?v=1.9.6";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.5";
+} from "./photoStore.js?v=1.9.6";
 
 const { $, $$ } = dom;
 
 /* ============================================================ 固定黒板レイアウト */
 
-const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.5: 黒板を従来(0.38)の90%に縮小
+const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.6: 黒板を従来(0.38)の90%に縮小
 const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
@@ -445,6 +446,7 @@ function initEvents() {
   const lensBtn = $("#btnLensCycle"); if (lensBtn) lensBtn.addEventListener("click", cycleLens);
   initPinchZoom();
   initZoomSlider();
+  initTapToFocus();
 
   // 未送信
   $("#outboxCard").addEventListener("click", openOutbox);
@@ -525,7 +527,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.5");
+  url.searchParams.set("v", "1.9.6");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -823,6 +825,7 @@ async function startCameraFlow() {
     state.lens = "main";
     state.torchOn = false;
     updateLightButton();
+    await enableContinuousFocus(track);   // 撮るたびにピントを合わせ直す
     await detectLenses(track);
     await initMainZoom(track);
     updateLensButton();
@@ -861,6 +864,7 @@ async function onSwitchCamera() {
     state.lens = "main";
     state.torchOn = false;
     updateLightButton();
+    await enableContinuousFocus(track);   // 撮るたびにピントを合わせ直す
     await detectLenses(track);
     await initMainZoom(track);
     updateLensButton();
@@ -1100,6 +1104,7 @@ async function activateLensDevice(deviceId, { announce = false } = {}) {
     state.cameraTrack = track;
     state.torchOn = false;
     updateLightButton();
+    await enableContinuousFocus(track);
 
     const isMain  = deviceId === state.mainDeviceId;
     const isUltra = state.hasUltra && deviceId === state.ultraDeviceId;
@@ -1175,6 +1180,7 @@ async function switchLens(target) {
     state.lens = target;
     state.torchOn = false;
     updateLightButton();
+    await enableContinuousFocus(track);
     if (target === "ultra") {
       state.zoomMode = "ultra";   // 追加ズームなし。超広角の画角をそのまま使う
       state.zoom = 1;
@@ -1305,6 +1311,123 @@ function clampNum(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/* ============================================================ ピント(オートフォーカス・ブレ判定) */
+
+// 映像の鮮鋭度(ピントの合い具合)を数値化する。
+// 縮小したグレースケール画像の隣接画素差(ラプラシアン相当)の分散を使う。
+// 値が大きいほどくっきり、小さいほどピンボケ・ブレ。
+const sharpCanvas = document.createElement("canvas");
+const SHARP_W = 240;
+
+function measureSharpness(source) {
+  try {
+    const sw = source.videoWidth || source.width;
+    const sh = source.videoHeight || source.height;
+    if (!sw || !sh) return -1;
+    const w = SHARP_W;
+    const h = Math.max(1, Math.round(sh * (w / sw)));
+    sharpCanvas.width = w;
+    sharpCanvas.height = h;
+    const ctx = sharpCanvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(source, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+
+    // グレースケール化
+    const g = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      g[p] = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    }
+    // ラプラシアン(4近傍)の分散
+    let sum = 0, sum2 = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w + x;
+        const lap = 4 * g[p] - g[p - 1] - g[p + 1] - g[p - w] - g[p + w];
+        sum += lap; sum2 += lap * lap; n++;
+      }
+    }
+    if (n === 0) return -1;
+    const mean = sum / n;
+    return (sum2 / n) - (mean * mean);
+  } catch (e) {
+    return -1;
+  }
+}
+
+// 撮影直前に、ピントが落ち着くまで少しだけ待つ。
+// 鮮鋭度を数回測り、上がり続けている間は待ち、頭打ちになったら撮る。
+async function waitForFocus(video, maxWaitMs = 700) {
+  const start = Date.now();
+  let best = -1;
+  let stable = 0;
+  while (Date.now() - start < maxWaitMs) {
+    const score = measureSharpness(video);
+    if (score < 0) break;
+    if (score > best * 1.06) {
+      best = Math.max(best, score);
+      stable = 0;
+    } else {
+      best = Math.max(best, score);
+      stable++;
+      if (stable >= 2) break;   // 2回続けて改善しなければ合焦とみなす
+    }
+    await sleep(80);
+  }
+  return best;
+}
+
+// ピンボケ判定のしきい値(縮小画像のラプラシアン分散)。
+// 小さすぎる値のみ警告し、暗所などでの誤警告を避けるため控えめに設定。
+const BLUR_WARN_THRESHOLD = 12;
+
+function warnIfBlurry(score) {
+  if (score < 0 || score >= BLUR_WARN_THRESHOLD) return false;
+  const noAf = !(state.cameraTrack && hasAutoFocus(state.cameraTrack));
+  const extra = noAf ? "（このレンズはピント固定です。右上の 0.5× でレンズを切り替えるか、少し離れて撮ってください）" : "（画面をタップするとピントを合わせられます）";
+  toastError("ピンボケの可能性があります。やり直しで撮り直せます" + extra, 5000);
+  dbg(`ピンボケ警告: 鮮鋭度 ${score.toFixed(1)} < ${BLUR_WARN_THRESHOLD}`);
+  return true;
+}
+
+// プレビューのタップでその位置にピントを合わせる
+function initTapToFocus() {
+  const wrap = $("#bcamWrap");
+  if (!wrap) return;
+  wrap.addEventListener("click", async (ev) => {
+    if (ev.target && ev.target.closest && ev.target.closest("button, input")) return;
+    if (!state.cameraOn || !state.cameraTrack) return;
+    const rect = wrap.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = (ev.clientX - rect.left) / rect.width;
+    const y = (ev.clientY - rect.top) / rect.height;
+    showFocusRing(ev.clientX - rect.left, ev.clientY - rect.top);
+    const ok = await focusAtPoint(state.cameraTrack, x, y);
+    if (!ok && !hasAutoFocus(state.cameraTrack)) {
+      toastInfo("このレンズはピント固定です（タップでの調整はできません）");
+    }
+  });
+}
+
+let focusRingTimer = null;
+function showFocusRing(x, y) {
+  const wrap = $("#bcamWrap");
+  if (!wrap) return;
+  let ring = $("#focusRing");
+  if (!ring) {
+    ring = document.createElement("div");
+    ring.id = "focusRing";
+    ring.className = "focus-ring";
+    wrap.appendChild(ring);
+  }
+  ring.style.left = x + "px";
+  ring.style.top  = y + "px";
+  ring.classList.remove("show");
+  void ring.offsetWidth;   // アニメーション再生のためリフロー
+  ring.classList.add("show");
+  if (focusRingTimer) clearTimeout(focusRingTimer);
+  focusRingTimer = setTimeout(() => ring.classList.remove("show"), 900);
+}
+
 /* ============================================================ 黒板表示 */
 
 function renderBoard() {
@@ -1355,7 +1478,7 @@ function layoutBoard() {
   setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
   setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
-  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.5: 少し小さく)
+  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.6: 少し小さく)
   setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
 
   function setSharedRowFont(rootEl, selectors, frac, factor) {
@@ -1444,6 +1567,11 @@ async function onShoot() {
     const video = $("#videoEl");
     const source = video;
 
+    // ピントが落ち着くまで少しだけ待ってから撮る(ピンボケ対策)
+    btn.textContent = "ピント合わせ中…";
+    const focusScore = await waitForFocus(video);
+    btn.textContent = "保存中…";
+
     const shotDate = todayYmd();
     const labels = { a: "工事名", b: "場所" };
     const values = {
@@ -1499,8 +1627,9 @@ async function onShoot() {
       savedIds.push(photoIdNB);
     }
 
-    dbg(`端末保存完了: ${savedIds.length}枚 ${fileNameMain}`);
+    dbg(`端末保存完了: ${savedIds.length}枚 ${fileNameMain} 鮮鋭度=${focusScore.toFixed(1)}`);
     toastSuccess(`端末に保存。Drive送信は裏で実行中: ${fileNameMain}`);
+    warnIfBlurry(focusScore);
 
     // 直前の写真を「やり直し」できるように記録・表示
     showLastShot({

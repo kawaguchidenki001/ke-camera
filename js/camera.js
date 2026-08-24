@@ -162,6 +162,71 @@ function normalizeError(e) {
   return new Error("カメラ起動エラー: " + (e?.message || String(e)));
 }
 
+/* ============================================================ フォーカス制御 */
+
+// この端末・レンズがピント合わせに対応しているか
+// (スマホの超広角レンズはピント固定のことが多く、その場合 false になる)
+export function hasAutoFocus(track) {
+  if (!track || typeof track.getCapabilities !== "function") return false;
+  try {
+    const caps = track.getCapabilities();
+    return !!(caps && Array.isArray(caps.focusMode) &&
+      (caps.focusMode.includes("continuous") || caps.focusMode.includes("single-shot")));
+  } catch (e) {
+    return false;
+  }
+}
+
+// 常時オートフォーカス(continuous)を有効にする。撮るたびにピントを合わせ直す。
+export async function enableContinuousFocus(track) {
+  if (!track || typeof track.getCapabilities !== "function") return false;
+  try {
+    const caps = track.getCapabilities();
+    if (!caps || !Array.isArray(caps.focusMode)) return false;
+    const mode = caps.focusMode.includes("continuous") ? "continuous"
+               : (caps.focusMode.includes("single-shot") ? "single-shot" : null);
+    if (!mode) return false;
+    await track.applyConstraints({ advanced: [{ focusMode: mode }] });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 画面上のタップ位置にピントを合わせる。
+ * @param {MediaStreamTrack} track
+ * @param {number} x 0..1 (映像内の相対位置)
+ * @param {number} y 0..1
+ */
+export async function focusAtPoint(track, x, y) {
+  if (!track || typeof track.getCapabilities !== "function") return false;
+  try {
+    const caps = track.getCapabilities();
+    if (!caps) return false;
+    const adv = {};
+    if (caps.pointsOfInterest) {
+      adv.pointsOfInterest = [{
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+      }];
+    }
+    if (Array.isArray(caps.focusMode)) {
+      if (caps.focusMode.includes("single-shot")) adv.focusMode = "single-shot";
+      else if (caps.focusMode.includes("continuous")) adv.focusMode = "continuous";
+    }
+    if (Object.keys(adv).length === 0) return false;
+    await track.applyConstraints({ advanced: [adv] });
+    // 単発フォーカスの端末は、合焦後に常時オートフォーカスへ戻す
+    if (adv.focusMode === "single-shot" && Array.isArray(caps.focusMode) && caps.focusMode.includes("continuous")) {
+      setTimeout(() => { enableContinuousFocus(track).catch(() => {}); }, 2500);
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function getZoomCapabilities(track) {
   if (!track || typeof track.getCapabilities !== "function") return null;
   try {
