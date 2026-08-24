@@ -1,5 +1,5 @@
 // js/composer.js
-// GenCan風 黒板焼き込み(v1.9.4 仕様)
+// GenCan風 黒板焼き込み(v1.9.5 仕様)
 // 行構成:
 //   1) 工事名(ラベル+値、下罫線あり)
 //   2) 場所(ラベル+値、下罫線あり)
@@ -178,7 +178,7 @@ function drawBoard(canvas, { boardRect, labels, values }) {
   function rowStage(value, hf) {
     const rh = bh * hf;
     const compact = String(value || "").trim().length <= 4;
-    const fs = Math.max(12, Math.floor(rh * (compact ? 0.74 : 0.66)));
+    const fs = Math.max(11, Math.floor(rh * (compact ? 0.63 : 0.56)));
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold " + fs + "px " + jpFont();
     ctx.textAlign = "center";
