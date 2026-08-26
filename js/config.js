@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.9.6: 画質向上版)
+// 北方カメラ - 設定値(v1.9.7: 画質向上版)
 
-export const APP_VERSION = "1.9.6";
+export const APP_VERSION = "1.9.7";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -70,7 +70,7 @@ export const FALLBACK_FIXTURES = Object.freeze([
 ]);
 
 export const FALLBACK_STAGES = Object.freeze([
-  "施工前", "施工中", "施工後",
+  "着工前", "施工状況", "完成",
 ]);
 
 // ============================================================
@@ -91,7 +91,7 @@ export const QUALITY_PRESETS = Object.freeze({
   high:     { label: "高画質", maxLongSide: 2048, jpeg: 0.90, capW: 2048, capH: 1536 },
   max:      { label: "最高",   maxLongSide: 2560, jpeg: 0.92, capW: 2560, capH: 1920 },
 });
-export const DEFAULT_QUALITY = "high";  // v1.9.6: 既定を高画質に
+export const DEFAULT_QUALITY = "high";  // v1.9.7: 既定を高画質に
 
 // ============================================================
 // 図面アプリ(kitagata-zumen)連携

@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.6 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.7 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.6";
+} from "./config.js?v=1.9.7";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,36 +19,36 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.6";
+} from "./storage.js?v=1.9.7";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.6";
+} from "./ui.js?v=1.9.7";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.6";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.6";
-import { readAllConfig } from "./sheets.js?v=1.9.6";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.6";
+} from "./camera.js?v=1.9.7";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.7";
+import { readAllConfig } from "./sheets.js?v=1.9.7";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.7";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-} from "./gas-uploader.js?v=1.9.6";
+} from "./gas-uploader.js?v=1.9.7";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.6";
+} from "./photoStore.js?v=1.9.7";
 
 const { $, $$ } = dom;
 
 /* ============================================================ 固定黒板レイアウト */
 
-const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.6: 黒板を従来(0.38)の90%に縮小
-const STAGE_BUTTONS = ["施工前", "施工中", "施工後"];
+const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.7: 黒板を従来(0.38)の90%に縮小
+const STAGE_BUTTONS = ["着工前", "施工状況", "完成"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
@@ -204,7 +204,7 @@ function applyDeepLink(params) {
     setLastFixture(fixture);
     parts.push(fixture);
   }
-  // 前と違う部屋・器具を引き継いだときは施工段階を「施工前」へ戻す
+  // 前と違う部屋・器具を引き継いだときは施工段階を「着工前」へ戻す
   if (changed) resetStageToBefore();
   refreshChips();
   renderBoard();
@@ -378,30 +378,35 @@ function renderStageButtons() {
 function normalizeStage() {
   state.stages = [...STAGE_BUTTONS];
   if (!STAGE_BUTTONS.includes(state.stage)) {
-    state.stage = "施工前";
+    state.stage = "着工前";
     setLastStage(state.stage);
   }
 }
 
 function stageToneClass(stage) {
   const s = String(stage || "");
+  const i = STAGE_BUTTONS.indexOf(s);
+  if (i === 0) return "stage-before";
+  if (i === 1) return "stage-during";
+  if (i === 2) return "stage-after";
+  // 旧名称(施工前/施工中/施工後)で保存済みの写真も同じ色で表示する
   if (s.includes("前")) return "stage-before";
-  if (s.includes("中")) return "stage-during";
-  if (s.includes("後")) return "stage-after";
+  if (s.includes("中") || s.includes("状況")) return "stage-during";
+  if (s.includes("後") || s.includes("完成")) return "stage-after";
   return "stage-other";
 }
 
-// 部屋や照明器具を前と違うものに変えたときは、施工段階を「施工前」へ戻す
-// (新しい撮影対象は施工前から撮り始めるため、段階の戻し忘れを防ぐ)
+// 部屋や照明器具を前と違うものに変えたときは、施工段階を「着工前」へ戻す
+// (新しい撮影対象は着工前から撮り始めるため、段階の戻し忘れを防ぐ)
 function resetStageToBefore() {
-  if (state.stage !== "施工前") {
-    state.stage = "施工前";
+  if (state.stage !== "着工前") {
+    state.stage = "着工前";
     setLastStage(state.stage);
   }
 }
 
 function selectStage(v) {
-  if (!STAGE_BUTTONS.includes(v)) v = "施工前";
+  if (!STAGE_BUTTONS.includes(v)) v = "着工前";
   state.stage = v;
   setLastStage(v);
   refreshChips();
@@ -527,7 +532,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.6");
+  url.searchParams.set("v", "1.9.7");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -1478,7 +1483,7 @@ function layoutBoard() {
   setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
   setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
-  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.6: 少し小さく)
+  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.7: 少し小さく)
   setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
 
   function setSharedRowFont(rootEl, selectors, frac, factor) {
