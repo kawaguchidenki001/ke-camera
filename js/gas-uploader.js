@@ -1,8 +1,8 @@
 // js/gas-uploader.js
 // GAS Web App と通信
-// v1.9.7: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
+// v1.9.8: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.9.7";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS } from "./config.js?v=1.9.8";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
@@ -10,6 +10,7 @@ const FORM_POST_TIMEOUT_MS = Math.max(90000, (GAS_TIMEOUT_MS || 60000) + 30000);
 
 const LS_GAS_URL = "kitagata.gasWebAppUrl";
 const LS_TOKEN   = "kitagata.sharedToken";
+const LS_PARENT  = "kitagata.driveParentId";   // 保存先(親)フォルダID
 
 // キャッシュに古い config.js が残っていても送信先を失わないための保険
 const FALLBACK_GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec";
@@ -62,6 +63,36 @@ export function clearSharedTokenOverride() {
   writeLocalStorage(LS_TOKEN, "");
 }
 
+/* ============================================================ 保存先フォルダ */
+
+// 端末で指定した保存先(親)フォルダID。未設定なら "" (GAS側の既定フォルダを使う)
+export function getDriveParentId() {
+  return String(readLocalStorage(LS_PARENT) || "").trim();
+}
+
+export function setDriveParentId(id) {
+  writeLocalStorage(LS_PARENT, String(id || "").trim());
+}
+
+/**
+ * Drive のフォルダURL または ID から、フォルダIDだけを取り出す。
+ * 対応例:
+ *   https://drive.google.com/drive/folders/1AbC...      → 1AbC...
+ *   https://drive.google.com/drive/u/0/folders/1AbC...  → 1AbC...
+ *   https://drive.google.com/open?id=1AbC...            → 1AbC...
+ *   1AbC...(IDそのまま)                                  → 1AbC...
+ */
+export function parseDriveFolderId(input) {
+  const s = String(input || "").trim();
+  if (!s) return "";
+  let m = s.match(/\/folders\/([A-Za-z0-9_-]{10,})/);
+  if (m) return m[1];
+  m = s.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  if (m) return m[1];
+  if (/^[A-Za-z0-9_-]{10,}$/.test(s)) return s;
+  return "";
+}
+
 export function getGasConfigStatus() {
   const url = getGasWebAppUrl();
   return {
@@ -102,7 +133,7 @@ function maskGasUrl(url) {
 /* ============================================================ ping */
 
 export function pingGas() {
-  return callGasJsonp({ action: "ping" }, 15000);
+  return callGasJsonp({ action: "ping", parent: getDriveParentId() }, 15000);
 }
 
 /* ============================================================ upload */
@@ -123,7 +154,7 @@ export async function uploadViaGas({ blob, fileName, folderName, mimeType, meta,
   log(`GAS URL: ${maskGasUrl(getGasWebAppUrl())}`);
   log(`送信開始: ${fileName} (${Math.round(base64.length/1024)}KB)`);
 
-  // v1.9.7: 画像本体は hidden iframe + form POST で送る。
+  // v1.9.8: 画像本体は hidden iframe + form POST で送る。
   // 一部ブラウザでは Drive 保存後の postMessage が親画面へ届かないため、
   // requestId を使って GAS 側の保存結果を JSONP で確認する。
   const resp = await uploadViaGasFormPost({
@@ -178,6 +209,7 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
     add("action", "upload_form");
     add("secret", getSharedToken());
     add("requestId", requestId);
+    add("parent", getDriveParentId());   // 保存先(親)フォルダ。空ならGAS側の既定
     add("folder", folderName);
     add("name", fileName);
     add("mime", mime);
@@ -319,6 +351,7 @@ async function uploadViaGasJsonpChunks({ base64, fileName, folderName, mime, met
   const startResp = await callGasJsonp({
     action: "up_start",
     uid:    uploadId,
+    parent: getDriveParentId(),
     folder: folderName,
     name:   fileName,
     mime:   mime,
