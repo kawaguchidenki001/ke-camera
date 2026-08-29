@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.9 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.10 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.9";
+} from "./config.js?v=1.9.10";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,36 +19,36 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.9";
+} from "./storage.js?v=1.9.10";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.9";
+} from "./ui.js?v=1.9.10";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.9";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.9";
-import { readAllConfig } from "./sheets.js?v=1.9.9";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.9";
+} from "./camera.js?v=1.9.10";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.10";
+import { readAllConfig } from "./sheets.js?v=1.9.10";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.10";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.9";
+} from "./gas-uploader.js?v=1.9.10";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.9";
+} from "./photoStore.js?v=1.9.10";
 
 const { $, $$ } = dom;
 
 /* ============================================================ 固定黒板レイアウト */
 
-const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.9: 黒板を従来(0.38)の90%に縮小
+const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.10: 黒板を従来(0.38)の90%に縮小
 const STAGE_BUTTONS = ["着工前", "施工状況", "完成"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
@@ -536,7 +536,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.9");
+  url.searchParams.set("v", "1.9.10");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -599,7 +599,16 @@ async function onTestGas() {
     if (r && r.ok) {
       state.gasReady = true;
       setAuthIndicator(true);
-      toastSuccess(`接続OK: ${r.folder || "Drive"}`);
+      const ver = r.version ? ` / GAS v${r.version}` : "";
+      if (r.parentApplied === false) {
+        // 指定した保存先が使えず、GAS側の既定フォルダに保存される状態
+        toastError(`保存先「${getDriveParentId().slice(-6)}」が使えません。実際の保存先: ${r.folder}${ver}。フォルダIDと、GASを実行しているアカウントの編集権限を確認してください`, 7000);
+      } else if (typeof r.parentApplied === "undefined") {
+        // GAS が保存先指定に未対応(v3.3.0以前)
+        toastInfo(`接続OK: ${r.folder || "Drive"}${ver} ・ 保存先指定に未対応のGASです(Code.gs を v3.4.0 に更新してください)`, 7000);
+      } else {
+        toastSuccess(`接続OK: 保存先「${r.folder || "Drive"}」${ver}`);
+      }
     } else {
       state.gasReady = false;
       setAuthIndicator(false);
@@ -1537,7 +1546,7 @@ function layoutBoard() {
   setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
   setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
-  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.9: 少し小さく)
+  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.10: 少し小さく)
   setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
 
   function setSharedRowFont(rootEl, selectors, frac, factor) {
@@ -1802,6 +1811,8 @@ function burst(actx, at, dur, freq, q, vol) {
 
 /* ============================================================ Upload */
 
+let warnedUsedDefault = false;   // 既定フォルダ退避の警告は1回だけ出す
+
 async function uploadOne(photoId) {
   const photo = await getPhoto(photoId);
   if (!photo) throw new Error("写真が見つかりません");
@@ -1830,6 +1841,7 @@ async function uploadOne(photoId) {
     app: `北方カメラ v${APP_VERSION}`,
   };
 
+  dbg(`保存先フォルダ: ${getDriveParentId() || "(GAS既定)"}`);
   try {
     const result = await uploadViaGas({
       blob: photo.blob,
@@ -1841,6 +1853,14 @@ async function uploadOne(photoId) {
     });
     await markUploaded(photoId, result.fileId || "");
     dbg(`✓ 保存成功: ${result.fileName} (${result.bytes}B) fileId=${result.fileId}`);
+    if (result.usedDefault) {
+      // 指定の保存先に書き込めず、GAS側の既定フォルダに保存された
+      dbg("⚠ 指定の保存先に書き込めないため、GAS既定フォルダへ保存しました");
+      if (!warnedUsedDefault) {
+        warnedUsedDefault = true;
+        toastError("指定の保存先に書き込めないため、元のフォルダに保存しています。フォルダの編集権限を確認してください", 7000);
+      }
+    }
     return result;
   } catch (e) {
     await markFailed(photoId, e.message || String(e));
