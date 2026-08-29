@@ -1,5 +1,5 @@
 // js/app.js
-// 北方カメラ v1.9.8 - 施工段階3ボタン固定版
+// 北方カメラ v1.9.9 - 施工段階3ボタン固定版
 
 import {
   APP_VERSION,
@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.8";
+} from "./config.js?v=1.9.9";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,36 +19,36 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.8";
+} from "./storage.js?v=1.9.9";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.8";
+} from "./ui.js?v=1.9.9";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.8";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.8";
-import { readAllConfig } from "./sheets.js?v=1.9.8";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.8";
+} from "./camera.js?v=1.9.9";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.9";
+import { readAllConfig } from "./sheets.js?v=1.9.9";
+import { getRoomFixtures } from "./roomFixtures.js?v=1.9.9";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
-  getDriveParentId, setDriveParentId, parseDriveFolderId,
-} from "./gas-uploader.js?v=1.9.8";
+  getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
+} from "./gas-uploader.js?v=1.9.9";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.8";
+} from "./photoStore.js?v=1.9.9";
 
 const { $, $$ } = dom;
 
 /* ============================================================ 固定黒板レイアウト */
 
-const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.8: 黒板を従来(0.38)の90%に縮小
+const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.9: 黒板を従来(0.38)の90%に縮小
 const STAGE_BUTTONS = ["着工前", "施工状況", "完成"];
 const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
@@ -536,7 +536,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.8");
+  url.searchParams.set("v", "1.9.9");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -757,11 +757,11 @@ async function pickStage() {
 async function pickDriveFolder() {
   const cur = getDriveParentId();
   const options = [];
-  if (cur) {
+  if (hasDriveParentOverride()) {
     options.push({
       value: "__clear__",
-      label: "初期の保存先に戻す",
-      sublabel: "GAS側で設定されているフォルダを使う",
+      label: "既定の保存先に戻す",
+      sublabel: "この端末の指定を消して、アプリ既定のフォルダに戻す",
     });
   }
   const v = await pickFromList({
@@ -797,7 +797,11 @@ function updateDriveFolderMenuLabel() {
   const btn = $("#menuDriveFolder");
   if (!btn) return;
   const cur = getDriveParentId();
-  btn.textContent = cur ? `保存先フォルダを設定(指定中: …${cur.slice(-6)})` : "保存先フォルダを設定";
+  if (hasDriveParentOverride()) {
+    btn.textContent = `保存先フォルダを設定(この端末: …${cur.slice(-6)})`;
+  } else {
+    btn.textContent = cur ? `保存先フォルダを設定(既定: …${cur.slice(-6)})` : "保存先フォルダを設定";
+  }
 }
 
 async function pickQuality() {
@@ -1533,7 +1537,7 @@ function layoutBoard() {
   setRowFont(ov, ".bv-l", null,  BROWH.a, 0.4);   // ラベル(全部同じ)
   setSharedRowFont(ov, [".bv-t[data-k='a']", ".bv-t[data-k='b']"], BROWH.a, 0.6); // 工事名と場所は同じ縦横比
   setRowFont(ov, ".bv-t[data-k='c']", "c", BROWH.c, 0.48, bw);
-  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.8: 少し小さく)
+  setRowFont(ov, ".bv-t[data-k='d']", "d", BROWH.d, 0.61, bw); // 施工段階は中央(v1.9.9: 少し小さく)
   setRowFont(ov, ".bv-t[data-k='e']", "e", BROWH.e, 0.42, bw); // 会社名は小さめ
 
   function setSharedRowFont(rootEl, selectors, frac, factor) {

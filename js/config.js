@@ -1,7 +1,7 @@
 // js/config.js
-// 北方カメラ - 設定値(v1.9.8: 画質向上版)
+// 北方カメラ - 設定値(v1.9.9: 画質向上版)
 
-export const APP_VERSION = "1.9.8";
+export const APP_VERSION = "1.9.9";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================
@@ -91,7 +91,16 @@ export const QUALITY_PRESETS = Object.freeze({
   high:     { label: "高画質", maxLongSide: 2048, jpeg: 0.90, capW: 2048, capH: 1536 },
   max:      { label: "最高",   maxLongSide: 2560, jpeg: 0.92, capW: 2560, capH: 1920 },
 });
-export const DEFAULT_QUALITY = "high";  // v1.9.8: 既定を高画質に
+export const DEFAULT_QUALITY = "high";  // v1.9.9: 既定を高画質に
+
+// ============================================================
+// 写真の保存先(Driveの親フォルダ)
+// ============================================================
+// ここに指定したフォルダの中に、部屋ごとのフォルダ(例 A4棟-405)を作って保存する。
+// 端末のメニュー「保存先フォルダを設定」で個別に上書きもできる。
+// ※ 実際に保存先を切り替えるには GAS(Code.gs)側の対応が必要
+//    (GAS-保存先フォルダ対応.md を参照)。未対応の間はGAS側の既定フォルダに保存される。
+export const DEFAULT_DRIVE_PARENT_ID = "10ovjwlT-MWdU3N1s8XUGvplMJXsALnMO";
 
 // ============================================================
 // 図面アプリ(kitagata-zumen)連携
