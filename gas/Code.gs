@@ -1,5 +1,9 @@
 /**
- * 北方カメラ - GAS Web App バックエンド v3.4.0
+ * 北方カメラ - GAS Web App バックエンド v3.5.0
+ * v3.5.0: 安全対策。保存先として使える親フォルダを ALLOWED_PARENT_IDS の許可リストに限定。
+ *         (v3.4.0 では任意のフォルダIDを指定できてしまい、合言葉を知る第三者が
+ *          このアカウントのアクセスできる別フォルダを読み書きできる余地があった)
+ *         あわせて、フォルダ名・ファイル名の検証と、送信サイズの上限チェックを追加。
  * v3.4.0: 保存先(親)フォルダの指定に対応。アプリから parent が送られてきたら
  *         そのフォルダの中に部屋フォルダを作って保存する。
  *         parent が無い場合は従来どおり PARENT_FOLDER_ID を使う。
@@ -15,6 +19,15 @@
 var SHARED_TOKEN     = 'kitagata-photo-2026';   // ⚠️ アプリ側 config.js と一致
 var PARENT_FOLDER_ID = '1kI1oXJOify1XWtcTuUsbVAuKYRXv1XmS';   // 既定の保存先(親フォルダ)
 var TEMP_FOLDER_NAME = '_uploading_tmp';        // 一時ファイル置き場
+
+// 保存先として使ってよい親フォルダIDの一覧(ここに無いIDは無視して既定フォルダを使う)。
+// 保存先を増やすときは、ここにフォルダIDを追記してから再デプロイしてください。
+var ALLOWED_PARENT_IDS = [
+  PARENT_FOLDER_ID,                       // 既定: KE-Camera 工事写真
+  '10ovjwlT-MWdU3N1s8XUGvplMJXsALnMO',    // 新しい保存先
+];
+
+var MAX_UPLOAD_BASE64 = 40 * 1024 * 1024;  // 送信データの上限(base64で約40MB = 実サイズ約30MB)
 
 // ============================================================
 // セットアップ
@@ -36,7 +49,8 @@ function setup() {
  */
 function resolveParentFolder_(params) {
   var pid = (params && params.parent) ? String(params.parent).trim() : '';
-  if (pid) {
+  // 許可リストにあるフォルダだけを受け付ける(任意のフォルダを指定させない)
+  if (pid && ALLOWED_PARENT_IDS.indexOf(pid) >= 0) {
     try {
       return DriveApp.getFolderById(pid);
     } catch (err) {
@@ -44,6 +58,13 @@ function resolveParentFolder_(params) {
     }
   }
   return DriveApp.getFolderById(PARENT_FOLDER_ID);
+}
+
+/** フォルダ名・ファイル名を安全な文字だけに整える */
+function sanitizeName_(name, maxLen) {
+  var s = String(name || '').replace(/[\\\/:*?"<>|\u0000-\u001f]/g, '').trim();
+  if (s.length > (maxLen || 120)) s = s.substring(0, maxLen || 120);
+  return s;
 }
 
 // ============================================================
@@ -111,7 +132,7 @@ function handlePing(params) {
   var requested = (params && params.parent) ? String(params.parent).trim() : '';
   return {
     ok: true,
-    version: '3.4.0',
+    version: '3.5.0',
     folder: folder.getName(),
     folderId: folder.getId(),
     // 指定したフォルダが使えなかった場合は false になる(既定フォルダに保存される)
@@ -175,8 +196,8 @@ function readUploadStatus_(requestId) {
 }
 
 function handleUploadForm_(params) {
-  var folder = String(params.folder || '').trim();
-  var name   = String(params.name   || '').trim();
+  var folder = sanitizeName_(params.folder, 80);
+  var name   = sanitizeName_(params.name, 180);
   var mime   = String(params.mime   || 'image/jpeg').trim();
   var meta   = String(params.meta   || '');
   var base64 = String(params.data   || '');
@@ -184,6 +205,7 @@ function handleUploadForm_(params) {
   if (!folder) throw new Error('folder required');
   if (!name)   throw new Error('name required');
   if (!base64 || base64.length < 100) throw new Error('data required or too small (len=' + base64.length + ')');
+  if (base64.length > MAX_UPLOAD_BASE64) throw new Error('data too large');
 
   var parentFolder = resolveParentFolder_(params);   // ★保存先を解決
   return saveBase64ToDrive_(parentFolder, folder, name, mime, meta, base64);
@@ -233,8 +255,8 @@ function findTempFile_(tmp, name) {
 
 function handleUpStart(params) {
   var uid    = String(params.uid    || '').trim();
-  var folder = String(params.folder || '').trim();
-  var name   = String(params.name   || '').trim();
+  var folder = sanitizeName_(params.folder, 80);
+  var name   = sanitizeName_(params.name, 180);
   var mime   = String(params.mime   || 'image/jpeg').trim();
   var meta   = String(params.meta   || '');
   var total  = parseInt(params.total || '0', 10);
@@ -358,9 +380,9 @@ function getOrCreateSubFolder_(parent, name) {
 // ============================================================
 
 function handleList(params) {
-  var folderName = String(params.folder || '').trim();
+  var folderName = sanitizeName_(params.folder, 80);
   if (!folderName) throw new Error('folder required');
-  var parent = resolveParentFolder_(params);   // ★保存先に合わせる
+  var parent = resolveParentFolder_(params);   // ★許可リスト内の保存先のみ
   var it = parent.getFoldersByName(folderName);
   if (!it.hasNext()) return { ok: true, files: [] };
   var sub = it.next();
