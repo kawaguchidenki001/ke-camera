@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.12";
+} from "./config.js?v=1.9.13";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.12";
+} from "./storage.js?v=1.9.13";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.12";
+} from "./ui.js?v=1.9.13";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.12";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.12";
-import { readAllConfig } from "./sheets.js?v=1.9.12";
-import { getRoomFixtures } from "./roomFixtures.js?v=1.9.12";
+} from "./camera.js?v=1.9.13";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.13";
+import { readAllConfig } from "./sheets.js?v=1.9.13";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.13";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.12";
+} from "./gas-uploader.js?v=1.9.13";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.12";
+} from "./photoStore.js?v=1.9.13";
 
 const { $, $$ } = dom;
 
@@ -77,7 +77,7 @@ function dbg(msg) {
 
 const state = {
   project:       { ...FALLBACK_PROJECT },
-  buildings:     { ...FALLBACK_BUILDINGS },
+  buildings:     { ...FALLBACK_BUILDINGS, ...getBuildings() },
   fixtures:      [...FALLBACK_FIXTURES],
   stages:        [...STAGE_BUTTONS],
   configSource:  "fallback",
@@ -250,6 +250,9 @@ async function loadAppConfig({ forceFresh = false } = {}) {
     const cfg = await readAllConfig();
     if (cfg.project && cfg.project.name) state.project = { ...FALLBACK_PROJECT, ...cfg.project };
     if (cfg.buildings && Object.keys(cfg.buildings).length > 0) state.buildings = cfg.buildings;
+    // 部屋の一覧は roomFixtures.js(図面ビューアと同じ589部屋)を正とする。
+    // 設定シートの「棟と部屋」は A2:Z までしか読めず1棟25部屋で頭打ちになるため。
+    state.buildings = { ...state.buildings, ...getBuildings() };
     if (Array.isArray(cfg.fixtures) && cfg.fixtures.length > 0) state.fixtures = cfg.fixtures;
     // 施工段階はボタン固定のためSheetsの説明文などは使わない
     state.stages = [...STAGE_BUTTONS];
@@ -266,7 +269,7 @@ async function loadAppConfig({ forceFresh = false } = {}) {
     const cached = loadConfigCache();
     if (cached && cached.cfg) {
       state.project   = { ...FALLBACK_PROJECT, ...cached.cfg.project };
-      state.buildings = cached.cfg.buildings || FALLBACK_BUILDINGS;
+      state.buildings = { ...(cached.cfg.buildings || FALLBACK_BUILDINGS), ...getBuildings() };
       state.fixtures  = cached.cfg.fixtures  || FALLBACK_FIXTURES;
       state.stages    = [...STAGE_BUTTONS];
       state.configSource = "cache";
@@ -536,7 +539,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.12");
+  url.searchParams.set("v", "1.9.13");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }

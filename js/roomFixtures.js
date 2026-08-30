@@ -620,3 +620,15 @@ export function getRoomFixtures(building, room) {
   const list = b[String(room || "").trim()];
   return (Array.isArray(list) && list.length > 0) ? [...list] : null;
 }
+
+/**
+ * 棟ごとの部屋一覧 { 棟: [部屋, ...] } を返す。撮影画面の選択肢に使う。
+ *
+ * 設定シートの「棟と部屋」タブは A2:Z までしか読めず、1棟25部屋で頭打ちに
+ * なるため(S1棟109室・S2棟107室などが選べない)、部屋の一覧はこちらを正とする。
+ */
+export function getBuildings() {
+  const out = {};
+  for (const b in ROOM_FIXTURES) out[b] = Object.keys(ROOM_FIXTURES[b]);
+  return out;
+}
