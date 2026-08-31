@@ -13,7 +13,8 @@ export function showScreen(name) {
   currentScreen = name;
 
   const header = $("#appHeader");
-  if (header) header.style.display = (name === "camera" || name === "preview") ? "none" : "";
+  // カメラ画面でもヘッダー(メニュー)を出す。横向き撮影中は CSS 側で隠す。
+  if (header) header.style.display = (name === "preview") ? "none" : "";
 
   window.scrollTo({ top: 0, behavior: "instant" });
 }
