@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.14";
+} from "./config.js?v=1.9.15";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.14";
+} from "./storage.js?v=1.9.15";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.14";
+} from "./ui.js?v=1.9.15";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.14";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.14";
-import { readAllConfig } from "./sheets.js?v=1.9.14";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.14";
+} from "./camera.js?v=1.9.15";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.15";
+import { readAllConfig } from "./sheets.js?v=1.9.15";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.15";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.14";
+} from "./gas-uploader.js?v=1.9.15";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.14";
+} from "./photoStore.js?v=1.9.15";
 
 const { $, $$ } = dom;
 
@@ -141,6 +141,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   // 設定読み込み後は部屋の器具一覧に合わせて記号を解決し直す）
   const urlParams = new URLSearchParams(location.search);
   applyDeepLink(urlParams);
+
+  // 施工段階のボタンは固定なので、設定の読み込みを待たずに先に出す
+  // (電波が弱い現場で設定取得が遅れても操作できるようにする)
+  renderStageButtons();
+  refreshChips();
 
   // 設定読み込み(Sheets)
   await loadAppConfig();
@@ -248,11 +253,24 @@ async function testGasConnection() {
 
 /* ============================================================ 設定読み込み */
 
+// 設定(Sheets)の取得を待つ上限。超えたらキャッシュ/既定値で起動を続ける。
+const CONFIG_LOAD_TIMEOUT_MS = 8000;
+
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(message || "時間切れ")), ms);
+    promise.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); }
+    );
+  });
+}
+
 async function loadAppConfig({ forceFresh = false } = {}) {
   if (!SHEETS_ID) return;
   try {
     if (forceFresh) showLoading("設定を再読み込み中…");
-    const cfg = await readAllConfig();
+    const cfg = await withTimeout(readAllConfig(), CONFIG_LOAD_TIMEOUT_MS, "設定の読み込みが時間切れになりました");
     if (cfg.project && cfg.project.name) state.project = { ...FALLBACK_PROJECT, ...cfg.project };
     if (cfg.buildings && Object.keys(cfg.buildings).length > 0) state.buildings = cfg.buildings;
     // 部屋の一覧は roomFixtures.js(図面ビューアと同じ589部屋)を正とする。
@@ -545,7 +563,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.14");
+  url.searchParams.set("v", "1.9.15");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
