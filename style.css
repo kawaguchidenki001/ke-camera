@@ -614,61 +614,118 @@ input { font: inherit; color: inherit; }
 .bshoot-bar .savebtn:active { box-shadow: var(--well-soft); }
 .bshoot-bar .savebtn:disabled { opacity: 0.45; }
 
-/* ============================================================ 横向き(ランドスケープ)レイアウト
-   スマホを横に持ったとき: カメラを画面全体に広げ、右側に丸い撮影ボタン
-   だけを重ねる(棟/部屋などの設定は縦向きで行う) */
+/* ============================================================ 横向き(ランドスケープ)撮影モード
+   ・カメラビューの「横向き」ボタン、または端末を横にすると入る
+   ・画面いっぱいに写真の枠(4:3)を左いっぱいに広げ、右の余白に
+     シャッターと戻るボタンだけを縦に並べる
+   ・写真に写る範囲とプレビューが一致するよう、枠は 4:3 のまま拡大する
+     (棟/部屋などの設定は縦向きで行う) */
 
-@media (orientation: landscape) and (max-height: 600px) {
-  /* カメラビューを全画面に */
-  .camera-screen .bcam-wrap {
-    position: fixed;
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-    aspect-ratio: auto;
-    border-radius: 0;
-    margin: 0;
-    box-shadow: none;
-    z-index: 40;
-  }
-  /* 撮影ボタン以外の操作類は隠す(ピンチでズームは可能) */
-  .camera-screen .chip-row,
-  .camera-screen .zoom-slider-wrap,
-  .camera-screen .stage-picker,
-  .camera-screen .next-hint,
-  .camera-screen .last-shot,
-  .camera-screen .outbox-card {
-    display: none;
-  }
-  /* 撮影ボタン: 右側中央に丸ボタンで重ねる */
-  .camera-screen .bshoot-bar {
-    position: fixed;
-    left: auto;
-    right: calc(env(safe-area-inset-right) + 16px);
-    top: 50%;
-    bottom: auto;
-    transform: translateY(-50%);
-    z-index: 50;
-    padding: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-  .camera-screen .bshoot-bar .savebtn {
-    width: 80px;
-    height: 80px;
-    min-height: 0;
-    padding: 0;
-    border-radius: 50%;
-    font-size: 0;   /* 文字は隠してカメラアイコンのみ表示 */
-    gap: 0;
-    border: 4px solid rgba(255,255,255,.9);
-    box-shadow: 0 4px 14px rgba(0,0,0,.35);
-  }
-  .camera-screen .bshoot-bar .savebtn svg {
-    width: 32px;
-    height: 32px;
-  }
+body.cam-land { overflow: hidden; }
+
+/* 背景を黒で覆う(下の画面を隠す) */
+body.cam-land::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 40;
+}
+
+/* 撮影に関係ない表示はすべて隠す */
+body.cam-land .app-header,
+body.cam-land .camera-screen .chip-row,
+body.cam-land .camera-screen .zoom-slider-wrap,
+body.cam-land .camera-screen .stage-picker,
+body.cam-land .camera-screen .next-hint,
+body.cam-land .camera-screen .last-shot,
+body.cam-land .camera-screen .outbox-card {
+  display: none;
+}
+
+/* カメラビュー: 画面の高さいっぱい、左寄せ(右側の余白にボタンを置く) */
+body.cam-land .camera-screen .bcam-wrap {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(100vw, calc(100dvh * 4 / 3));
+  height: auto;
+  aspect-ratio: 4 / 3;
+  max-height: 100dvh;
+  border-radius: 0;
+  margin: 0;
+  box-shadow: none;
+  z-index: 45;
+}
+
+/* シャッター+戻るを右中央に縦並び */
+body.cam-land .bshoot-bar {
+  position: fixed;
+  left: auto;
+  right: calc(env(safe-area-inset-right) + 14px);
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  z-index: 50;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+body.cam-land .bshoot-bar .savebtn {
+  flex: 0 0 auto;
+  width: 78px;
+  height: 78px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0;      /* 文字は隠してカメラアイコンのみ */
+  gap: 0;
+  border: 4px solid rgba(255,255,255,.9);
+  box-shadow: 0 4px 14px rgba(0,0,0,.45);
+}
+body.cam-land .bshoot-bar .savebtn svg {
+  width: 32px;
+  height: 32px;
+}
+
+/* 戻るボタン(横向きのときだけ出す) */
+.landback { display: none; }
+body.cam-land .landback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.6);
+  color: #fff;
+  border: 2px solid rgba(255,255,255,.75);
+  box-shadow: 0 3px 10px rgba(0,0,0,.4);
+  backdrop-filter: blur(4px);
+}
+body.cam-land .landback:active { background: rgba(0,0,0,.8); }
+.landback .lb-txt { font-size: 10px; font-weight: 800; line-height: 1; }
+
+/* 横向き中はツール類(ライト/レンズ/横向き)をビューの左上に小さくまとめる */
+body.cam-land .camera-screen .bcam-tools {
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: 8px;
+}
+body.cam-land .camera-screen .bcam-tool {
+  width: 38px;
+  height: 38px;
+}
+
+/* 横向きボタン: ONのときに色を変える */
+#btnLandscape.on {
+  background: #ffd34d;
+  color: #2f2500;
 }
 
 /* ============================================================ Buttons */

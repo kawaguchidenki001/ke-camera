@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.13";
+} from "./config.js?v=1.9.14";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.13";
+} from "./storage.js?v=1.9.14";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.13";
+} from "./ui.js?v=1.9.14";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.13";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.13";
-import { readAllConfig } from "./sheets.js?v=1.9.13";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.13";
+} from "./camera.js?v=1.9.14";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.14";
+import { readAllConfig } from "./sheets.js?v=1.9.14";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.14";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.13";
+} from "./gas-uploader.js?v=1.9.14";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.13";
+} from "./photoStore.js?v=1.9.14";
 
 const { $, $$ } = dom;
 
@@ -104,6 +104,11 @@ const state = {
   zoomStep:       0.1,
   pinchStartDist: 0,
   pinchStartZoom: 1,
+  pinchEndAt:     0,      // ピンチ直後のタップでピント合わせが誤作動しないよう記録
+
+  // 横向き撮影モード
+  landForced:    false,   // 「横向き」ボタンで入ったか
+  landDismissed: false,   // 端末が横のまま「戻る」を押したか
 
   // レンズ/スライダー
   lens:          "main",   // "main" | "ultra" | "other"(手動選択の背面レンズ)
@@ -457,15 +462,16 @@ function initEvents() {
   initPinchZoom();
   initZoomSlider();
   initTapToFocus();
+  initLandscapeMode();
 
   // 未送信
-  $("#outboxCard").addEventListener("click", openOutbox);
+  $("#outboxCard").addEventListener("click", () => { leaveLandscapeForNav(); openOutbox(); });
 
   // 直前写真のやり直し
   const redoBtn = $("#btnRedoShot"); if (redoBtn) redoBtn.addEventListener("click", onRedoShot);
 
   // メニュー
-  $("#btnMenu").addEventListener("click", openMenu);
+  $("#btnMenu").addEventListener("click", () => { leaveLandscapeForNav(); openMenu(); });
   const quickMenu = $("#quickOpenMenu"); if (quickMenu) quickMenu.addEventListener("click", openMenu);
   $$("[data-close-menu]").forEach(el => el.addEventListener("click", closeMenu));
   $("#menuPhotographer").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
@@ -539,7 +545,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.13");
+  url.searchParams.set("v", "1.9.14");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -1280,6 +1286,111 @@ async function switchLens(target) {
   }
 }
 
+/* ============================================================ 横向き撮影モード
+
+   「横向き」ボタン、または端末を横に倒したときに、カメラを画面いっぱいに
+   広げてシャッターと戻るボタンだけを右中央に出す。
+   端末が対応していれば画面を横向きに固定する(Android Chrome など)。
+   非対応(iPhone)の場合はレイアウトだけ切り替え、回すよう案内する。
+============================================================ */
+
+const LAND_MQ = window.matchMedia("(orientation: landscape) and (max-height: 600px)");
+
+// カメラ画面以外へ移るときは横向きモードを解除する
+function leaveLandscapeForNav() {
+  if (landscapeModeOn()) exitLandscapeMode();
+}
+
+function initLandscapeMode() {
+  const btn = $("#btnLandscape");
+  if (btn) btn.addEventListener("click", toggleLandscapeMode);
+  const back = $("#btnLandExit");
+  if (back) back.addEventListener("click", exitLandscapeMode);
+
+  // 端末を回したときの自動切り替え
+  const onMq = () => { state.landDismissed = false; syncLandscapeMode(); };
+  if (LAND_MQ.addEventListener) LAND_MQ.addEventListener("change", onMq);
+  else if (LAND_MQ.addListener) LAND_MQ.addListener(onMq);
+
+  // システム操作で全画面を抜けたら横向きモードも解除する
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && state.landForced) {
+      state.landForced = false;
+      unlockOrientation();
+      syncLandscapeMode();
+    }
+  });
+
+  syncLandscapeMode();
+}
+
+function landscapeModeOn() {
+  return state.landForced || (LAND_MQ.matches && !state.landDismissed);
+}
+
+function syncLandscapeMode() {
+  const on = landscapeModeOn();
+  document.body.classList.toggle("cam-land", on);
+  const btn = $("#btnLandscape");
+  if (btn) {
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  const back = $("#btnLandExit");
+  if (back) back.hidden = !on;
+  // レイアウト確定後に黒板を置き直す
+  setTimeout(renderBoard, 60);
+  setTimeout(renderBoard, 350);
+}
+
+function toggleLandscapeMode() {
+  if (landscapeModeOn()) exitLandscapeMode();
+  else enterLandscapeMode();
+}
+
+async function enterLandscapeMode() {
+  state.landForced = true;
+  state.landDismissed = false;
+  syncLandscapeMode();
+
+  // 全画面 → 横向き固定(できる端末だけ)
+  let locked = false;
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) {
+      await el.requestFullscreen({ navigationUI: "hide" });
+    }
+  } catch (e) { /* 非対応でもレイアウトは切り替わる */ }
+  try {
+    if (screen.orientation && screen.orientation.lock) {
+      await screen.orientation.lock("landscape");
+      locked = true;
+    }
+  } catch (e) { /* iPhone など非対応 */ }
+
+  if (!locked && !LAND_MQ.matches) {
+    toastInfo("端末を横に回してください（この端末は自動で横向きにできません）");
+  }
+  syncLandscapeMode();
+}
+
+function exitLandscapeMode() {
+  state.landForced = false;
+  // 端末を横に持ったままでも戻れるようにする(縦に戻すと自動でまた横向きに入る)
+  if (LAND_MQ.matches) state.landDismissed = true;
+  unlockOrientation();
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+  } catch (e) { /* noop */ }
+  syncLandscapeMode();
+}
+
+function unlockOrientation() {
+  try {
+    if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+  } catch (e) { /* noop */ }
+}
+
 function initPinchZoom() {
   const wrap = $("#bcamWrap");
   if (!wrap) return;
@@ -1305,10 +1416,15 @@ function initPinchZoom() {
 
   wrap.addEventListener("touchend", (ev) => {
     if (ev.touches.length < 2) {
+      if (state.pinchStartDist > 0) state.pinchEndAt = Date.now();
       state.pinchStartDist = 0;
       state.pinchStartZoom = state.uiZoom;
     }
   }, { passive: true });
+
+  // 2本指の操作中に出るブラウザ既定の拡大を止める
+  wrap.addEventListener("gesturestart", (ev) => ev.preventDefault());
+  wrap.addEventListener("gesturechange", (ev) => ev.preventDefault());
 }
 
 function touchDistance(a, b) {
@@ -1467,6 +1583,8 @@ function initTapToFocus() {
   wrap.addEventListener("click", async (ev) => {
     if (ev.target && ev.target.closest && ev.target.closest("button, input")) return;
     if (!state.cameraOn || !state.cameraTrack) return;
+    // ピンチで指を離した直後のタップはピント合わせにしない
+    if (Date.now() - state.pinchEndAt < 500) return;
     const rect = wrap.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const x = (ev.clientX - rect.left) / rect.width;

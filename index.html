@@ -12,13 +12,13 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.9.13" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.9.13" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.9.13" />
-  <link rel="stylesheet" href="./style.css?v=1.9.13" />
+  <link rel="manifest" href="./manifest.json?v=1.9.14" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.9.14" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.9.14" />
+  <link rel="stylesheet" href="./style.css?v=1.9.14" />
 
   <script>
-  window.__KITAGATA_BUILD__ = "1.9.13";
+  window.__KITAGATA_BUILD__ = "1.9.14";
   window.__KITAGATA_FALLBACK_CONFIG__ = {
     GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
     SHARED_TOKEN: "kitagata-photo-2026"
@@ -40,7 +40,7 @@
     } finally {
       const url = new URL(location.href);
       url.searchParams.delete("reset");
-      url.searchParams.set("v", "1.9.13");
+      url.searchParams.set("v", "1.9.14");
       location.replace(url.toString());
     }
   })();
@@ -94,6 +94,9 @@
         </button>
         <button class="bcam-tool" id="btnLight" aria-label="ライト" type="button" hidden>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2h6l-1 8h3l-6 12 1-9H8z"/></svg>
+        </button>
+        <button class="bcam-tool" id="btnLandscape" aria-label="横向きで撮影(画面全体)" title="横向き撮影" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.6"/><path d="M17.4 12h.6"/></svg>
         </button>
         <button class="bcam-tool" id="btnLensCycle" aria-label="レンズ切替(広角レンズを探す)" title="レンズ切替" type="button" hidden>
           <span class="lens-cycle-txt">0.5×</span>
@@ -151,6 +154,10 @@
       <button class="savebtn" id="btnShoot" type="button">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.4-2h6l1.4 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3"/></svg>
         撮影して保存
+      </button>
+      <button class="landback" id="btnLandExit" type="button" aria-label="横向きをやめて元の画面に戻る" title="戻る" hidden>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        <span class="lb-txt">戻る</span>
       </button>
     </div>
   </section>
@@ -286,7 +293,7 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js?v=1.9.13"></script>
+<script type="module" src="./js/app.js?v=1.9.14"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -296,7 +303,7 @@ if ('serviceWorker' in navigator) {
       refreshing = true;
       location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=1.9.13', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js?v=1.9.14', { updateViaCache: 'none' })
       .then(reg => {
         reg.update();
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
