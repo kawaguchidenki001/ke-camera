@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.19";
+} from "./config.js?v=1.9.20";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.19";
+} from "./storage.js?v=1.9.20";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.19";
+} from "./ui.js?v=1.9.20";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.19";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.19";
-import { readAllConfig } from "./sheets.js?v=1.9.19";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.19";
+} from "./camera.js?v=1.9.20";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.20";
+import { readAllConfig } from "./sheets.js?v=1.9.20";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.20";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.19";
+} from "./gas-uploader.js?v=1.9.20";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.19";
+} from "./photoStore.js?v=1.9.20";
 
 const { $, $$ } = dom;
 
@@ -55,7 +55,10 @@ const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
 const BACKGROUND_UPLOAD_PAUSE_MS_MOBILE = 1800;
 const BACKGROUND_UPLOAD_PAUSE_MS_PC = 250;
-const MAX_BG_RETRY = 3;  // バックグラウンド送信で失敗写真を自動再試行する上限
+// 失敗した写真を自動で送り直すまでの待ち時間(回を追うごとに延ばす)。
+// 打ち切りはしない。アプリを開いている間は最後まで自動で送り直す。
+const RETRY_DELAYS_MS = [10 * 1000, 30 * 1000, 60 * 1000, 3 * 60 * 1000, 10 * 60 * 1000];
+const AUTO_RETRY_CHECK_MS = 30 * 1000;   // 自動再開の見回り間隔
 
 /* ============================================================ デバッグログ */
 
@@ -155,6 +158,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   refreshChips();
   await resetStaleUploading(30 * 1000);
   await refreshOutboxCard();
+
+  // 前回送りきれなかった写真を、起動時に自動で送り直す
+  setTimeout(() => startBackgroundUploadQueue({ silent: true }), 1500);
 
   // GAS 疎通確認
   testGasConnection();
@@ -531,9 +537,19 @@ function initEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && state.cameraOn) {
       stopCameraFlow();
-    } else if (document.visibilityState === "visible" && !state.cameraOn && getCurrentScreen() === "camera") {
-      startCameraFlow();
+    } else if (document.visibilityState === "visible") {
+      if (!state.cameraOn && getCurrentScreen() === "camera") startCameraFlow();
+      // アプリに戻ったら、送りきれていない写真を自動で送り直す
+      resetStaleUploading(30 * 1000)
+        .then(() => startBackgroundUploadQueue({ silent: true }))
+        .catch(() => {});
     }
+  });
+
+  // 電波が戻ったら自動で送信を再開する
+  window.addEventListener("online", () => {
+    dbg("通信が回復しました。送信を再開します");
+    startBackgroundUploadQueue({ silent: true });
   });
   window.addEventListener("resize", () => { renderBoard(); });
   // 端末回転時はレイアウト確定を待ってから黒板を再配置する
@@ -561,7 +577,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.19");
+  url.searchParams.set("v", "1.9.20");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -2035,7 +2051,32 @@ async function uploadOne(photoId) {
 
 /* ============================================================ Background Upload */
 
-async function startBackgroundUploadQueue() {
+// この写真を今すぐ送り直してよいか(失敗直後の連打を避けて間隔を空ける)
+function isRetryDue(p) {
+  if (!p || p.status !== "failed") return true;
+  const wait = RETRY_DELAYS_MS[Math.min(Math.max((p.attempts || 1) - 1, 0), RETRY_DELAYS_MS.length - 1)];
+  return (Date.now() - (p.failedAt || 0)) >= wait;
+}
+
+// 送信待ちが残っている間、一定間隔で自動的に送信を再開する
+let autoRetryTimer = null;
+async function scheduleAutoRetry() {
+  if (autoRetryTimer) return;
+  let remaining = 0;
+  try { remaining = (await getPendingPhotos()).length; } catch (e) { return; }
+  if (remaining === 0) return;
+  autoRetryTimer = setTimeout(() => {
+    autoRetryTimer = null;
+    startBackgroundUploadQueue({ silent: true });
+  }, AUTO_RETRY_CHECK_MS);
+}
+
+function cancelAutoRetry() {
+  if (autoRetryTimer) { clearTimeout(autoRetryTimer); autoRetryTimer = null; }
+}
+
+async function startBackgroundUploadQueue({ silent = false } = {}) {
+  cancelAutoRetry();
   if (state.uploading) return;
   state.uploading = true;
   state.backgroundUploading = true;
@@ -2049,11 +2090,9 @@ async function startBackgroundUploadQueue() {
   try {
     while (true) {
       await resetStaleUploading(30 * 1000);
-      // 失敗写真も MAX_BG_RETRY 回までは自動で再送する(一時的な通信断からの自動回復)。
-      // 上限を超えた失敗は打ち切り、未送信一覧からの手動再送に委ねる。
-      const list = (await getPendingPhotos()).filter(
-        p => p.status !== "failed" || (p.attempts || 0) < MAX_BG_RETRY
-      );
+      // 失敗した写真も、待ち時間が過ぎたものから自動で送り直す。
+      // まだ待ち時間中のものは今回は飛ばし、後でタイマーが拾う。
+      const list = (await getPendingPhotos()).filter(isRetryDue);
       if (list.length === 0) break;
 
       const p = list[0];
@@ -2065,8 +2104,8 @@ async function startBackgroundUploadQueue() {
       } catch (e) {
         ng++;
         dbg(`BG送信エラー: ${e.message || e}`);
-        if (!announcedError) {
-          toastError(`Drive送信失敗。未送信に残しました: ${e.message || e}`);
+        if (!announcedError && !silent) {
+          toastError(`Drive送信失敗。あとで自動的に送り直します: ${e.message || e}`);
           announcedError = true;
         }
       }
@@ -2078,18 +2117,20 @@ async function startBackgroundUploadQueue() {
     state.backgroundUploading = false;
     await refreshOutboxCard();
 
-    // ちょうど送信終了の瞬間に新しい写真が端末保存された場合の取りこぼし対策
+    // すぐ送れるものが残っていれば続行、待ち時間中のものはタイマーで再開する
     try {
-      const remaining = (await getPendingPhotos()).filter(p => p.status !== "failed");
-      if (remaining.length > 0) {
-        setTimeout(() => startBackgroundUploadQueue(), 250);
+      const remaining = await getPendingPhotos();
+      if (remaining.some(p => p.status !== "failed")) {
+        setTimeout(() => startBackgroundUploadQueue({ silent }), 250);
+      } else if (remaining.length > 0) {
+        scheduleAutoRetry();
       }
     } catch (e) {}
 
     if (ok > 0 && ng === 0) {
       toastSuccess(`Drive送信完了: ${ok}枚`);
     } else if (ok > 0 && ng > 0) {
-      toastInfo(`Drive送信: 成功${ok}枚 / 失敗${ng}枚`);
+      toastInfo(`Drive送信: 成功${ok}枚 / 失敗${ng}枚(あとで自動的に送り直します)`);
     }
     dbg(`バックグラウンド送信終了: 成功${ok} 失敗${ng}`);
   }
@@ -2130,7 +2171,8 @@ async function renderOutbox() {
     item.className = "outbox-item";
     item.dataset.id = p.id;
     const url = getObjectUrl(p.id, p.blob);
-    const statusLabel = p.status === "failed" ? "失敗" : (p.status === "uploading" ? "送信中" : "未送信");
+    // 失敗しても自動で送り直すので「失敗」ではなく「再送信待ち」と出す
+    const statusLabel = p.status === "failed" ? "再送信待ち" : (p.status === "uploading" ? "送信中" : "未送信");
     item.innerHTML = `
       <div class="oi-thumb">
         ${url ? `<img src="${url}" alt="" />` : ""}
@@ -2144,7 +2186,8 @@ async function renderOutbox() {
         <span class="oi-type">${escapeHtml(p.board.fixture || "")} / ${escapeHtml(p.board.stage || "")}</span>
         <span class="oi-date">${escapeHtml(p.board.date)} #${pad3(p.board.seq)}${p.board.isNoBoard ? " (黒板なし)" : ""}</span>
         ${p.status === "failed" && p.lastError ? `<span class="oi-error">${escapeHtml(String(p.lastError).slice(0, 90))}</span>` : ""}
-        ${p.status !== "uploading" ? `<button class="oi-retry" data-action="retry" data-id="${escapeHtml(p.id)}" type="button">再送信</button>` : ""}
+        ${p.status === "failed" ? `<span class="oi-auto">自動で送り直します（今すぐ送るには下のボタン）</span>` : ""}
+        ${p.status !== "uploading" ? `<button class="oi-retry" data-action="retry" data-id="${escapeHtml(p.id)}" type="button">今すぐ送信</button>` : ""}
       </div>
     `;
     listEl.appendChild(item);

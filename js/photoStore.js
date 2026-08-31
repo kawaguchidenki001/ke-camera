@@ -140,6 +140,7 @@ export async function markFailed(id, errorMessage) {
   return updatePhoto(id, (p) => {
     p.status = "failed";
     p.uploadingAt = null;
+    p.failedAt = Date.now();   // 自動再送信の待ち時間の起点
     p.lastError = errorMessage;
   });
 }
@@ -153,6 +154,10 @@ export async function resetStaleUploading(maxAgeMs = 2 * 60 * 1000) {
       await updatePhoto(p.id, (rec) => {
         rec.status = "failed";
         rec.uploadingAt = null;
+        rec.failedAt = Date.now();
+        // 送信が終わらないまま中断された分は「試した回数」に数えない
+        // (アプリを閉じただけで自動再送信の間隔が延びてしまわないようにする)
+        rec.attempts = Math.max(0, (rec.attempts || 1) - 1);
         rec.lastError = "前回の送信が中断されたため、再送信待ちに戻しました";
       });
       reset++;
