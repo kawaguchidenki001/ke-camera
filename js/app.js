@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.22";
+} from "./config.js?v=1.9.23";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.22";
+} from "./storage.js?v=1.9.23";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.22";
+} from "./ui.js?v=1.9.23";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.22";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.22";
-import { readAllConfig } from "./sheets.js?v=1.9.22";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.22";
+} from "./camera.js?v=1.9.23";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.23";
+import { readAllConfig } from "./sheets.js?v=1.9.23";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.23";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.22";
+} from "./gas-uploader.js?v=1.9.23";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.22";
+} from "./photoStore.js?v=1.9.23";
 
 const { $, $$ } = dom;
 
@@ -50,7 +50,9 @@ const { $, $$ } = dom;
 
 const FIXED_BOARD_RECT = Object.freeze({ x: 0, y: 1, w: 0.342 });  // v1.9.11: 黒板を従来(0.38)の90%に縮小
 const STAGE_BUTTONS = ["着工前", "施工状況", "完成"];
-const ALWAYS_NO_BOARD = true;  // 黒板なし版を常時保存
+// 黒板なし版は保存しない(v1.9.23)。過去に保存済みの黒板なし写真は
+// 未送信一覧に残っていればそのまま送信される。
+const ALWAYS_NO_BOARD = false;
 const BATCH_PAUSE_MS_MOBILE = 2500;     // スマホ連続送信の安定化
 const BATCH_PAUSE_MS_PC = 300;
 const BACKGROUND_UPLOAD_PAUSE_MS_MOBILE = 1800;
@@ -590,7 +592,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.22");
+  url.searchParams.set("v", "1.9.23");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
