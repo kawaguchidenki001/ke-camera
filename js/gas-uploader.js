@@ -2,7 +2,7 @@
 // GAS Web App と通信
 // v1.9.11: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS, DEFAULT_DRIVE_PARENT_ID } from "./config.js?v=1.9.20";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS, DEFAULT_DRIVE_PARENT_ID } from "./config.js?v=1.9.21";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。

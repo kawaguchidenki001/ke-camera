@@ -12,13 +12,13 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.9.20" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.9.20" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.9.20" />
-  <link rel="stylesheet" href="./style.css?v=1.9.20" />
+  <link rel="manifest" href="./manifest.json?v=1.9.21" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.9.21" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.9.21" />
+  <link rel="stylesheet" href="./style.css?v=1.9.21" />
 
   <script>
-  window.__KITAGATA_BUILD__ = "1.9.20";
+  window.__KITAGATA_BUILD__ = "1.9.21";
   window.__KITAGATA_FALLBACK_CONFIG__ = {
     GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
     SHARED_TOKEN: "kitagata-photo-2026"
@@ -40,7 +40,7 @@
     } finally {
       const url = new URL(location.href);
       url.searchParams.delete("reset");
-      url.searchParams.set("v", "1.9.20");
+      url.searchParams.set("v", "1.9.21");
       location.replace(url.toString());
     }
   })();
@@ -55,6 +55,12 @@
     </svg>
   </button>
   <h1 class="app-title">北方カメラ</h1>
+  <button class="pending-badge" id="pendingBadge" type="button" aria-label="未送信の写真を見る" hidden>
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path fill="currentColor" d="M19 8h-3V3H8v5H5l7 7 7-7zM5 19v2h14v-2H5z" transform="rotate(180 12 12)"/>
+    </svg>
+    <span id="pendingBadgeCount">0</span>
+  </button>
   <button class="header-btn" id="authStatusBtn" aria-label="接続状態" type="button">
     <span id="authIndicator" class="auth-indicator off" aria-hidden="true"></span>
   </button>
@@ -289,7 +295,7 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js?v=1.9.20"></script>
+<script type="module" src="./js/app.js?v=1.9.21"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -299,7 +305,7 @@ if ('serviceWorker' in navigator) {
       refreshing = true;
       location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=1.9.20', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js?v=1.9.21', { updateViaCache: 'none' })
       .then(reg => {
         reg.update();
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });

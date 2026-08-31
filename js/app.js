@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.20";
+} from "./config.js?v=1.9.21";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.20";
+} from "./storage.js?v=1.9.21";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.20";
+} from "./ui.js?v=1.9.21";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.20";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.20";
-import { readAllConfig } from "./sheets.js?v=1.9.20";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.20";
+} from "./camera.js?v=1.9.21";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.21";
+import { readAllConfig } from "./sheets.js?v=1.9.21";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.21";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.20";
+} from "./gas-uploader.js?v=1.9.21";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.20";
+} from "./photoStore.js?v=1.9.21";
 
 const { $, $$ } = dom;
 
@@ -145,10 +145,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   const urlParams = new URLSearchParams(location.search);
   applyDeepLink(urlParams);
 
-  // 施工段階のボタンは固定なので、設定の読み込みを待たずに先に出す
-  // (電波が弱い現場で設定取得が遅れても操作できるようにする)
+  // 施工段階のボタンと未送信の枚数は設定の読み込みを待たずに先に出す
+  // (電波が弱い現場で設定取得が遅れても操作でき、未送信にも気づけるようにする)
   renderStageButtons();
   refreshChips();
+  refreshOutboxCard().catch(() => {});
 
   // 設定読み込み(Sheets)
   await loadAppConfig();
@@ -459,6 +460,15 @@ async function refreshOutboxCard() {
   let count = 0;
   try { await resetStaleUploading(3 * 60 * 1000); } catch (e) {}
   try { count = await countPending(); } catch (e) {}
+
+  // ヘッダーのバッジ(棟や部屋の選択に関係なく、未送信の合計を常に表示)
+  const badge = $("#pendingBadge");
+  const badgeCnt = $("#pendingBadgeCount");
+  if (badge && badgeCnt) {
+    badge.hidden = count === 0;
+    badgeCnt.textContent = `未送信 ${count}`;
+  }
+
   const card = $("#outboxCard");
   const cnt  = $("#outboxCount");
   if (!card || !cnt) return;
@@ -488,6 +498,8 @@ function initEvents() {
 
   // 未送信
   $("#outboxCard").addEventListener("click", () => { leaveLandscapeForNav(); openOutbox(); });
+  const pBadge = $("#pendingBadge");
+  if (pBadge) pBadge.addEventListener("click", () => { leaveLandscapeForNav(); openOutbox(); });
 
   // 直前写真のやり直し
   const redoBtn = $("#btnRedoShot"); if (redoBtn) redoBtn.addEventListener("click", onRedoShot);
@@ -541,6 +553,7 @@ function initEvents() {
       if (!state.cameraOn && getCurrentScreen() === "camera") startCameraFlow();
       // アプリに戻ったら、送りきれていない写真を自動で送り直す
       resetStaleUploading(30 * 1000)
+        .then(() => refreshOutboxCard())
         .then(() => startBackgroundUploadQueue({ silent: true }))
         .catch(() => {});
     }
@@ -577,7 +590,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.20");
+  url.searchParams.set("v", "1.9.21");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -2067,6 +2080,7 @@ async function scheduleAutoRetry() {
   if (remaining === 0) return;
   autoRetryTimer = setTimeout(() => {
     autoRetryTimer = null;
+    refreshOutboxCard().catch(() => {});
     startBackgroundUploadQueue({ silent: true });
   }, AUTO_RETRY_CHECK_MS);
 }

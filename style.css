@@ -60,9 +60,9 @@ input { font: inherit; color: inherit; }
   top: 0;
   z-index: 100;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   height: 52px;
   padding: 0 12px;
   background: var(--bg);
@@ -773,6 +773,25 @@ body.cam-land .camera-screen .bcam-tool {
   color: #2f2500;
   border-color: rgba(0,0,0,.25);
 }
+
+/* 未送信バッジ(ヘッダー・どの画面でも見える) */
+.pending-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: var(--rise-sm);
+  white-space: nowrap;
+}
+.pending-badge[hidden] { display: none; }
+.pending-badge:active { box-shadow: var(--well-soft); }
 
 /* ============================================================ Buttons */
 
