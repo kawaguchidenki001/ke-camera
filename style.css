@@ -286,12 +286,6 @@ input { font: inherit; color: inherit; }
   line-height: 1;
   white-space: nowrap;
 }
-.bcam-tool .lens-cycle-txt {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: -.02em;
-  line-height: 1;
-}
 
 .zoom-badge {
   position: absolute;

@@ -12,13 +12,13 @@
 
   <title>北方カメラ</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.9.15" />
-  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.9.15" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.9.15" />
-  <link rel="stylesheet" href="./style.css?v=1.9.15" />
+  <link rel="manifest" href="./manifest.json?v=1.9.16" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg?v=1.9.16" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png?v=1.9.16" />
+  <link rel="stylesheet" href="./style.css?v=1.9.16" />
 
   <script>
-  window.__KITAGATA_BUILD__ = "1.9.15";
+  window.__KITAGATA_BUILD__ = "1.9.16";
   window.__KITAGATA_FALLBACK_CONFIG__ = {
     GAS_WEB_APP_URL: "https://script.google.com/macros/s/AKfycbxNLOTttmi766ZZlWWe3hp4LUV7lw6zXTzxOFoMTSeqIz_hIslb4caasipD7w_MgA6M9Q/exec",
     SHARED_TOKEN: "kitagata-photo-2026"
@@ -40,7 +40,7 @@
     } finally {
       const url = new URL(location.href);
       url.searchParams.delete("reset");
-      url.searchParams.set("v", "1.9.15");
+      url.searchParams.set("v", "1.9.16");
       location.replace(url.toString());
     }
   })();
@@ -93,14 +93,8 @@
           <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77c-.59-.59-1.54-.59-2.12 0L1.75 8.11c-.59.59-.59 1.54 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zM7.52 21.48C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/></svg>
           <span class="tool-txt">横向き</span>
         </button>
-        <button class="bcam-tool" id="btnSwitchCamera" aria-label="カメラ切替" type="button">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5h-3.17L15 3H9L7.17 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zM12 18a5 5 0 0 1-5-5H5l3-3 3 3H9a3 3 0 0 0 3 3 3 3 0 0 0 0-6"/></svg>
-        </button>
         <button class="bcam-tool" id="btnLight" aria-label="ライト" type="button" hidden>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2h6l-1 8h3l-6 12 1-9H8z"/></svg>
-        </button>
-        <button class="bcam-tool" id="btnLensCycle" aria-label="レンズ切替(広角レンズを探す)" title="レンズ切替" type="button" hidden>
-          <span class="lens-cycle-txt">0.5×</span>
         </button>
       </div>
       <div class="bov-bd" id="boardOverlay" style="display:none;"></div>
@@ -294,7 +288,7 @@
   <span id="appVersion"></span>
 </div>
 
-<script type="module" src="./js/app.js?v=1.9.15"></script>
+<script type="module" src="./js/app.js?v=1.9.16"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -304,7 +298,7 @@ if ('serviceWorker' in navigator) {
       refreshing = true;
       location.reload();
     });
-    navigator.serviceWorker.register('./sw.js?v=1.9.15', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js?v=1.9.16', { updateViaCache: 'none' })
       .then(reg => {
         reg.update();
         if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });

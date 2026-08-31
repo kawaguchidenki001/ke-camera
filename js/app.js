@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.15";
+} from "./config.js?v=1.9.16";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.15";
+} from "./storage.js?v=1.9.16";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.15";
+} from "./ui.js?v=1.9.16";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
-  switchCamera, stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
+  stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.15";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.15";
-import { readAllConfig } from "./sheets.js?v=1.9.15";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.15";
+} from "./camera.js?v=1.9.16";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.16";
+import { readAllConfig } from "./sheets.js?v=1.9.16";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.16";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.15";
+} from "./gas-uploader.js?v=1.9.16";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.15";
+} from "./photoStore.js?v=1.9.16";
 
 const { $, $$ } = dom;
 
@@ -474,9 +474,7 @@ function initEvents() {
 
   // 撮影
   $("#btnShoot").addEventListener("click", onShoot);
-  $("#btnSwitchCamera").addEventListener("click", onSwitchCamera);
   const lightBtn = $("#btnLight"); if (lightBtn) lightBtn.addEventListener("click", onToggleLight);
-  const lensBtn = $("#btnLensCycle"); if (lensBtn) lensBtn.addEventListener("click", cycleLens);
   initPinchZoom();
   initZoomSlider();
   initTapToFocus();
@@ -563,7 +561,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.15");
+  url.searchParams.set("v", "1.9.16");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -923,7 +921,6 @@ async function startCameraFlow() {
     await enableContinuousFocus(track);   // 撮るたびにピントを合わせ直す
     await detectLenses(track);
     await initMainZoom(track);
-    updateLensButton();
     await startWide();
     setTimeout(renderBoard, 80);
   } catch (e) {
@@ -931,7 +928,6 @@ async function startCameraFlow() {
     state.cameraTrack = null;
     state.torchOn = false;
     updateLightButton();
-    updateLensButton();
     toastError(e.message);
   }
 }
@@ -946,26 +942,6 @@ function stopCameraFlow() {
   state.torchOn = false;
   resetZoomState();
   updateLightButton();
-}
-
-async function onSwitchCamera() {
-  if (!state.cameraOn) return;
-  try {
-    if (state.torchOn && state.cameraTrack) {
-      try { await setTorch(state.cameraTrack, false); } catch (e) {}
-    }
-    const track = await switchCamera($("#videoEl"));
-    state.cameraTrack = track;
-    state.lens = "main";
-    state.torchOn = false;
-    updateLightButton();
-    await enableContinuousFocus(track);   // 撮るたびにピントを合わせ直す
-    await detectLenses(track);
-    await initMainZoom(track);
-    updateLensButton();
-    await startWide();
-    setTimeout(renderBoard, 80);
-  } catch (e) { toastError(e.message); }
 }
 
 async function onToggleLight() {
@@ -1015,7 +991,6 @@ function resetZoomState() {
   state.uiMax = 4;
   applyZoomDisplay();
   updateZoomSlider();
-  updateLensButton();
 }
 
 // 背面カメラの中からメイン/超広角レンズを推定する。
@@ -1172,22 +1147,6 @@ async function reconcileLens() {
   }
 }
 
-/* --- 手動レンズ切替(超広角が自動検出できない端末向け) --- */
-
-async function cycleLens() {
-  if (!state.cameraOn || state.lensSwitching) return;
-  const backs = state.backCameras || [];
-  if (backs.length < 2) {
-    toastInfo("この端末で切替できる背面レンズが見つかりません");
-    return;
-  }
-  const curId = getCurrentDeviceId() || state.mainDeviceId;
-  const idx = backs.findIndex(d => d.deviceId === curId);
-  const next = backs[(idx + 1) % backs.length];
-  if (!next || next.deviceId === curId) return;
-  await activateLensDevice(next.deviceId, { announce: true });
-}
-
 async function activateLensDevice(deviceId, { announce = false } = {}) {
   if (state.lensSwitching) return;
   state.lensSwitching = true;
@@ -1230,7 +1189,6 @@ async function activateLensDevice(deviceId, { announce = false } = {}) {
 
     applyZoomDisplay();
     updateZoomSlider();
-    updateLensButton();
     setTimeout(renderBoard, 80);
     dbg(`手動レンズ切替: ${state.lens} (${deviceId.slice(0, 8)}…)`);
   } catch (e) {
@@ -1248,12 +1206,6 @@ async function activateLensDevice(deviceId, { announce = false } = {}) {
   } finally {
     state.lensSwitching = false;
   }
-}
-
-function updateLensButton() {
-  const btn = $("#btnLensCycle");
-  if (!btn) return;
-  btn.hidden = !(state.cameraOn && (state.backCameras || []).length >= 2);
 }
 
 async function switchLens(target) {
