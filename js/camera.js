@@ -11,17 +11,14 @@ export async function startCamera(videoEl, { facingMode = "environment", width =
   }
   stopCamera();
 
-  const constraints = {
-    video: {
-      facingMode: { ideal: facingMode },
-      width:  { ideal: width },
-      height: { ideal: height },
-    },
-    audio: false,
+  const base = {
+    facingMode: { ideal: facingMode },
+    width:  { ideal: width },
+    height: { ideal: height },
   };
 
   try {
-    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+    currentStream = await getStream43(base);
   } catch (e) {
     try {
       currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -50,16 +47,11 @@ export async function startCameraByDeviceId(videoEl, deviceId, { width = 2048, h
   if (!deviceId) throw new Error("deviceId が指定されていません");
   stopCamera();
 
-  const constraints = {
-    video: {
-      deviceId: { exact: deviceId },
-      width:  { ideal: width },
-      height: { ideal: height },
-    },
-    audio: false,
-  };
-
-  currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+  currentStream = await getStream43({
+    deviceId: { exact: deviceId },
+    width:  { ideal: width },
+    height: { ideal: height },
+  });
   currentFacing = "environment";
   currentDeviceId = deviceId;
   videoEl.srcObject = currentStream;
@@ -67,6 +59,48 @@ export async function startCameraByDeviceId(videoEl, deviceId, { width = 2048, h
   await waitForVideoReady(videoEl);
 
   return currentStream.getVideoTracks()[0];
+}
+
+/**
+ * 4:3 の映像を優先して取得する。
+ *
+ * スマホのカメラの素子は 4:3 で、16:9 は上下を切り落として作られる。
+ * ブラウザが 16:9 を返すと、保存時に 4:3 へ戻す段階で今度は左右が
+ * 切り落とされ、標準のカメラアプリより画角がかなり狭くなる。
+ * そのため 4:3 で取得できるかを実際に確かめ、駄目なら 4:3 を必須にして
+ * もう一度だけ試す。
+ */
+async function getStream43(videoBase) {
+  const softened = {
+    ...videoBase,
+    aspectRatio: { ideal: 4 / 3 },
+    resizeMode:  { ideal: "none" },   // ブラウザ側の切り出しを避ける
+  };
+  const stream = await navigator.mediaDevices.getUserMedia({ video: softened, audio: false });
+  if (isRatio43(stream)) return stream;
+
+  // 4:3 にならなかったときだけ、4:3 を必須にして取り直す
+  try {
+    const strict = await navigator.mediaDevices.getUserMedia({
+      video: { ...videoBase, aspectRatio: { exact: 4 / 3 }, resizeMode: { ideal: "none" } },
+      audio: false,
+    });
+    for (const tr of stream.getTracks()) tr.stop();
+    return strict;
+  } catch (e) {
+    return stream;   // 4:3 が無い端末はそのまま使う
+  }
+}
+
+function isRatio43(stream) {
+  try {
+    const tr = stream.getVideoTracks()[0];
+    const st = tr && tr.getSettings ? tr.getSettings() : null;
+    if (!st || !st.width || !st.height) return false;
+    return Math.abs((st.width / st.height) - (4 / 3)) < 0.02;
+  } catch (e) {
+    return false;
+  }
 }
 
 /**

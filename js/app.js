@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.16";
+} from "./config.js?v=1.9.17";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.16";
+} from "./storage.js?v=1.9.17";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.16";
+} from "./ui.js?v=1.9.17";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.16";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.16";
-import { readAllConfig } from "./sheets.js?v=1.9.16";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.16";
+} from "./camera.js?v=1.9.17";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.17";
+import { readAllConfig } from "./sheets.js?v=1.9.17";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.17";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.16";
+} from "./gas-uploader.js?v=1.9.17";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.16";
+} from "./photoStore.js?v=1.9.17";
 
 const { $, $$ } = dom;
 
@@ -488,10 +488,12 @@ function initEvents() {
 
   // メニュー
   $("#btnMenu").addEventListener("click", () => { leaveLandscapeForNav(); openMenu(); });
-  const quickMenu = $("#quickOpenMenu"); if (quickMenu) quickMenu.addEventListener("click", openMenu);
+  const camMenu = $("#btnCamMenu");
+  if (camMenu) camMenu.addEventListener("click", () => { leaveLandscapeForNav(); openMenu(); });
   $$("[data-close-menu]").forEach(el => el.addEventListener("click", closeMenu));
   $("#menuPhotographer").addEventListener("click", () => { closeMenu(); pickPhotographer(); });
   const qBtn = $("#menuQuality"); if (qBtn) qBtn.addEventListener("click", async () => { closeMenu(); await pickQuality(); });
+  const lensBtn2 = $("#menuLens"); if (lensBtn2) lensBtn2.addEventListener("click", async () => { closeMenu(); await pickLens(); });
   $("#menuReloadConfig").addEventListener("click", async () => { closeMenu(); await reloadAppConfig(); });
   $("#menuTestGas").addEventListener("click", async () => { closeMenu(); await onTestGas(); });
   const folderBtn = $("#menuDriveFolder");
@@ -561,7 +563,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.16");
+  url.searchParams.set("v", "1.9.17");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -864,6 +866,55 @@ async function pickQuality() {
   }
 }
 
+/* ============================================================ レンズ選択
+
+   Android の Chrome では背面レンズの名前が「camera2 0, facing back」のように
+   なり、どれが超広角かをアプリ側で判別できない端末が多い。
+   そのため、使えるレンズを一覧で出して現場で選んでもらう。
+   選んだレンズはこの端末に記憶し、次回もそのレンズで起動する。
+============================================================ */
+
+async function pickLens() {
+  if (!state.cameraOn) {
+    toastInfo("カメラが起動してから選んでください");
+    return;
+  }
+  const backs = state.backCameras || [];
+  if (backs.length < 2) {
+    toastInfo("この端末では切り替えられる背面レンズが1つしかありません");
+    return;
+  }
+
+  const curId = getCurrentDeviceId() || state.mainDeviceId;
+  const options = backs.map((d, i) => {
+    const isMain = d.deviceId === state.mainDeviceId;
+    const raw = String(d.label || "").trim();
+    const hint = isMain ? "標準(いつものレンズ)" : "広角かどうか切り替えて見比べてください";
+    return {
+      value: d.deviceId,
+      label: `レンズ${i + 1}${isMain ? "(標準)" : ""}`,
+      sublabel: `${hint}${raw ? " ・" + raw : ""}${d.deviceId === curId ? " ・現在" : ""}`,
+    };
+  });
+
+  const v = await pickFromList({
+    title: "レンズを選ぶ(いちばん広く写るものを選んでください)",
+    options,
+    allowInput: false,
+    selectedValue: curId,
+  });
+  if (!v || v === curId) return;
+
+  await activateLensDevice(v, { announce: false });
+  const video = $("#videoEl");
+  const size = (video && video.videoWidth) ? ` (${video.videoWidth}×${video.videoHeight})` : "";
+  const i = backs.findIndex(d => d.deviceId === v);
+  const isMain = v === state.mainDeviceId;
+  toastInfo(isMain
+    ? `標準レンズに戻しました${size}`
+    : `レンズ${i >= 0 ? i + 1 : "?"}に切り替えました${size}。次回もこのレンズで起動します`);
+}
+
 /* ============================================================ 図面アプリ連携 */
 
 function openZumen() {
@@ -922,6 +973,7 @@ async function startCameraFlow() {
     await detectLenses(track);
     await initMainZoom(track);
     await startWide();
+    logCameraInfo(track);
     setTimeout(renderBoard, 80);
   } catch (e) {
     state.cameraOn = false;
@@ -996,6 +1048,20 @@ function resetZoomState() {
 // 背面カメラの中からメイン/超広角レンズを推定する。
 // 注意: iPhone のメインカメラは「背面広角カメラ(Back Wide Camera)」なので、
 // 「広角/wide」では判定しない。「超広角/ultra」の明確な一致だけを自動採用する。
+// 画角が狭いなどの相談時に状況が分かるよう、実際の映像サイズとズーム範囲を記録する
+function logCameraInfo(track) {
+  try {
+    const video = $("#videoEl");
+    const st = (track && track.getSettings) ? track.getSettings() : {};
+    const caps = getZoomCapabilities(track);
+    dbg(`カメラ起動: 映像 ${video ? video.videoWidth : "?"}×${video ? video.videoHeight : "?"}` +
+        ` / 要求 ${st.width || "?"}×${st.height || "?"}` +
+        ` / resizeMode ${st.resizeMode || "(不明)"}` +
+        ` / ズーム ${caps ? `${caps.min}〜${caps.max}` : "非対応"}` +
+        ` / 背面レンズ ${(state.backCameras || []).length}個`);
+  } catch (e) { /* 記録できなくても動作に影響しない */ }
+}
+
 async function detectLenses(track) {
   state.hasUltra = false;
   state.ultraDeviceId = "";
@@ -1008,10 +1074,11 @@ async function detectLenses(track) {
     const inputs = await listVideoInputs();
     dbg(`カメラ一覧(${inputs.length}): ` + inputs.map(d => d.label || "(名称なし)").join(" / "));
     if (settings && settings.facingMode === "user") return;  // 前面カメラ使用中は対象外
-    if (!inputs || inputs.length < 2) return;
+    if (!inputs || inputs.length === 0) return;
 
     const backs = inputs.filter(isBackCamera);
     state.backCameras = backs;
+    if (backs.length < 2) return;
 
     const ultra = backs.find(d =>
       d.deviceId && d.deviceId !== state.mainDeviceId &&

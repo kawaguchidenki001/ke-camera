@@ -753,8 +753,9 @@ body.cam-land .landback {
 body.cam-land .landback:active { background: rgba(0,0,0,.8); }
 .landback .lb-txt { font-size: 10px; font-weight: 800; line-height: 1; }
 
-/* 横向き中は「横向き」ボタンを隠す(解除は右の「戻る」で行う) */
-body.cam-land #btnLandscape { display: none; }
+/* 横向き中は「横向き」とメニューのボタンを隠す(解除は右の「戻る」で行う) */
+body.cam-land #btnLandscape,
+body.cam-land #btnCamMenu { display: none; }
 
 /* 横向き中はツール類(ライト/レンズ)を小さくまとめる */
 body.cam-land .camera-screen .bcam-tools {
