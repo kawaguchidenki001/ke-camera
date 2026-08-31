@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.17";
+} from "./config.js?v=1.9.18";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.17";
+} from "./storage.js?v=1.9.18";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.17";
+} from "./ui.js?v=1.9.18";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.17";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.17";
-import { readAllConfig } from "./sheets.js?v=1.9.17";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.17";
+} from "./camera.js?v=1.9.18";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.18";
+import { readAllConfig } from "./sheets.js?v=1.9.18";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.18";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.17";
+} from "./gas-uploader.js?v=1.9.18";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.17";
+} from "./photoStore.js?v=1.9.18";
 
 const { $, $$ } = dom;
 
@@ -563,7 +563,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.17");
+  url.searchParams.set("v", "1.9.18");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -973,6 +973,7 @@ async function startCameraFlow() {
     await detectLenses(track);
     await initMainZoom(track);
     await startWide();
+    updateLensMenuVisibility();
     logCameraInfo(track);
     setTimeout(renderBoard, 80);
   } catch (e) {
@@ -1049,6 +1050,12 @@ function resetZoomState() {
 // 注意: iPhone のメインカメラは「背面広角カメラ(Back Wide Camera)」なので、
 // 「広角/wide」では判定しない。「超広角/ultra」の明確な一致だけを自動採用する。
 // 画角が狭いなどの相談時に状況が分かるよう、実際の映像サイズとズーム範囲を記録する
+// 切り替えられる背面レンズが無い端末では、メニューの項目自体を出さない
+function updateLensMenuVisibility() {
+  const li = $("#menuLens") ? $("#menuLens").closest("li") : null;
+  if (li) li.hidden = (state.backCameras || []).length < 2;
+}
+
 function logCameraInfo(track) {
   try {
     const video = $("#videoEl");
