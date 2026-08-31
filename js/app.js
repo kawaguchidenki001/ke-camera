@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.21";
+} from "./config.js?v=1.9.22";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.21";
+} from "./storage.js?v=1.9.22";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.21";
+} from "./ui.js?v=1.9.22";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.21";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.21";
-import { readAllConfig } from "./sheets.js?v=1.9.21";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.21";
+} from "./camera.js?v=1.9.22";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.22";
+import { readAllConfig } from "./sheets.js?v=1.9.22";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.22";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.21";
+} from "./gas-uploader.js?v=1.9.22";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.21";
+} from "./photoStore.js?v=1.9.22";
 
 const { $, $$ } = dom;
 
@@ -590,7 +590,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.21");
+  url.searchParams.set("v", "1.9.22");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -1369,14 +1369,15 @@ const LAND_MQ = window.matchMedia("(orientation: landscape) and (max-height: 600
 
 // カメラ画面以外へ移るときは横向きモードを解除する
 function leaveLandscapeForNav() {
-  if (landscapeModeOn()) exitLandscapeMode();
+  if (landscapeModeOn() || document.fullscreenElement) exitLandscapeMode(true);
 }
 
 function initLandscapeMode() {
   const btn = $("#btnLandscape");
   if (btn) btn.addEventListener("click", toggleLandscapeMode);
   const back = $("#btnLandExit");
-  if (back) back.addEventListener("click", exitLandscapeMode);
+  // クリックイベントが引数に入らないよう、必ず引数なしで呼ぶ
+  if (back) back.addEventListener("click", () => exitLandscapeMode());
 
   // 端末を回したときの自動切り替え
   const onMq = () => { state.landDismissed = false; syncLandscapeMode(); };
@@ -1385,7 +1386,8 @@ function initLandscapeMode() {
 
   // システム操作で全画面を抜けたら横向きモードも解除する
   document.addEventListener("fullscreenchange", () => {
-    if (!document.fullscreenElement && state.landForced) {
+    if (!document.fullscreenElement) {
+      // 全画面が外れると向きの固定も維持できないので、あわせて解除する
       state.landForced = false;
       unlockOrientation();
       syncLandscapeMode();
@@ -1445,14 +1447,48 @@ async function enterLandscapeMode() {
   syncLandscapeMode();
 }
 
-function exitLandscapeMode() {
+/**
+ * 横向きをやめる。
+ *
+ * 「戻る」を押したときは、端末を横に持ったままでも画面を縦向きに戻す。
+ * (縦向きに固定するには全画面のままにしておく必要があるため、全画面は
+ *  解除しない。もう一度「横向き」を押すか、メニューなど他の画面へ移ると
+ *  固定は解除される。)
+ *
+ * @param {boolean} releaseAll true なら向きの固定も全画面も完全に解除する
+ */
+async function exitLandscapeMode(releaseAll = false) {
   state.landForced = false;
   // 端末を横に持ったままでも戻れるようにする(縦に戻すと自動でまた横向きに入る)
   if (LAND_MQ.matches) state.landDismissed = true;
-  unlockOrientation();
+  syncLandscapeMode();
+
+  if (releaseAll) {
+    unlockOrientation();
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+    } catch (e) { /* noop */ }
+    syncLandscapeMode();
+    return;
+  }
+
+  // 画面を縦向きに戻す
+  let portraitLocked = false;
   try {
-    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
-  } catch (e) { /* noop */ }
+    if (screen.orientation && screen.orientation.lock) {
+      await screen.orientation.lock("portrait");
+      portraitLocked = true;
+      state.landDismissed = false;   // 縦に固定したので自動判定はやり直してよい
+    }
+  } catch (e) { /* iPhone など非対応 */ }
+
+  if (!portraitLocked) {
+    // 向きを変えられない端末は、これまでどおり全画面だけ解除する
+    unlockOrientation();
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+    } catch (e) { /* noop */ }
+  }
   syncLandscapeMode();
 }
 
