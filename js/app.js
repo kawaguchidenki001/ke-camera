@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.27";
+} from "./config.js?v=1.9.28";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.27";
+} from "./storage.js?v=1.9.28";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.27";
+} from "./ui.js?v=1.9.28";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.27";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.27";
-import { readAllConfig } from "./sheets.js?v=1.9.27";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.27";
+} from "./camera.js?v=1.9.28";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.28";
+import { readAllConfig } from "./sheets.js?v=1.9.28";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.28";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.27";
+} from "./gas-uploader.js?v=1.9.28";
 import {
   addPhoto, getPhoto, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.27";
+} from "./photoStore.js?v=1.9.28";
 
 const { $, $$ } = dom;
 
@@ -592,7 +592,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.27");
+  url.searchParams.set("v", "1.9.28");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }

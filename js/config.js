@@ -1,7 +1,7 @@
 // js/config.js
 // 北方カメラ - 設定値(v1.9.11: 画質向上版)
 
-export const APP_VERSION = "1.9.27";
+export const APP_VERSION = "1.9.28";
 export const APP_NAME = "北方カメラ";
 
 // ============================================================

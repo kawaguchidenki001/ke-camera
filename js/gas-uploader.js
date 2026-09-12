@@ -2,7 +2,7 @@
 // GAS Web App と通信
 // v1.9.11: スマホ安定優先。画像は iframe form POST で送信し、GAS応答が返らない場合もiframe完了で次へ進む。
 
-import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS, DEFAULT_DRIVE_PARENT_ID } from "./config.js?v=1.9.27";
+import { GAS_WEB_APP_URL as CONFIG_GAS_WEB_APP_URL, SHARED_TOKEN as CONFIG_SHARED_TOKEN, GAS_TIMEOUT_MS, DEFAULT_DRIVE_PARENT_ID } from "./config.js?v=1.9.28";
 
 let _seq = 0;
 const CHUNK_SIZE = 1200;  // JSONPフォールバック用。URL長制限を避けるため小さめ。
@@ -271,19 +271,46 @@ function uploadViaGasFormPost({ base64, fileName, folderName, mime, metaStr, tim
           return;
         }
       } catch (e) {
-        log(`POST保存確認を待たず次へ進みます: ${e.message || e}`);
+        log(`POST保存確認が取れません: ${e.message || e}`);
+      }
+      if (settled) return;
+
+      // ここから先は「GASの返事が取れなかった」場合。
+      //
+      // 以前はスマホなら iframe の読み込み完了だけで送信完了として扱っていた。
+      // Drive に保存できていても返事が返らない端末があるためだが、これだと
+      // GAS が受け取りを拒否したときも「送った」ことになってしまう。
+      // 送信ずみになった写真は再送されず、7日後のお掃除で端末から消える。
+      // 2026-09-11 の「日付の形が違います」でGASが全部拒否していた時間帯に
+      // これが起き、S2棟203の写真が1枚も残らなかった。
+      //
+      // なので、Drive にそのファイル名が本当にあるかを確かめてから完了にする。
+      // 無い／確かめられないときは失敗として扱い、再送キューへ戻す。
+      // GAS側の saveBase64ToDrive_ は同じ名前・同じ大きさなら作り直さないので、
+      // 送り直しても二重にならない。
+      try {
+        const listed = await callGasJsonp(
+          { action: "list", folder: folderName, parent: getDriveParentId() }, 12000);
+        if (settled) return;
+        if (listed && listed.ok) {
+          const hit = (listed.files || []).some(f => f && f.name === fileName);
+          if (hit) {
+            log(`Drive に ${fileName} を確認しました（${reason}）`);
+            finishOk({ ok: true, fileName, requestId, verified: true,
+                       note: `GAS応答は取れなかったが、Driveで確認できた（${reason}）` });
+          } else {
+            finishErr(new Error(
+              `Driveに保存されていません（${reason}）。あとで送り直します`));
+          }
+          return;
+        }
+      } catch (e) {
+        log(`Drive確認もできません: ${e.message || e}`);
       }
 
-      // Android系ブラウザでは、Drive保存済みでも postMessage / status 確認が返らず、
-      // 画面だけ「送信中」のまま止まることがある。iframe の読み込み完了後は送信完了として扱う。
-      if (!settled && isMobileBrowser()) {
-        finishOk({
-          ok: true,
-          fileName,
-          requestId,
-          assumed: true,
-          note: `GAS応答未確認ですが、${reason} のため送信完了扱い`
-        });
+      if (!settled) {
+        finishErr(new Error(
+          `送信できたか確かめられません（${reason}）。あとで送り直します`));
       }
     }
 
