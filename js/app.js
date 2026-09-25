@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.28";
+} from "./config.js?v=1.9.29";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.28";
+} from "./storage.js?v=1.9.29";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.28";
+} from "./ui.js?v=1.9.29";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.28";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.28";
-import { readAllConfig } from "./sheets.js?v=1.9.28";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.28";
+} from "./camera.js?v=1.9.29";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.29";
+import { readAllConfig } from "./sheets.js?v=1.9.29";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.29";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.28";
+} from "./gas-uploader.js?v=1.9.29";
 import {
-  addPhoto, getPhoto, getPendingPhotos, countPending,
+  addPhoto, getPhoto, getAllPhotos, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.28";
+} from "./photoStore.js?v=1.9.29";
 
 const { $, $$ } = dom;
 
@@ -195,15 +195,16 @@ function applyDeepLink(params) {
   if (!b && !r && !f) return;
 
   const parts = [];
-  let changed = false;
+  let roomChanged = false;      // 棟・部屋が変わった
+  let fixtureChanged = false;   // 同じ部屋で器具だけ変わった
   if (b) {
-    if (b !== state.building) changed = true;
+    if (b !== state.building) roomChanged = true;
     state.building = b;
     setLastBuilding(b);
     parts.push(b);
   }
   if (r) {
-    if (r !== state.room) changed = true;
+    if (r !== state.room) roomChanged = true;
     state.room = r;
     setLastRoom(r);
     // 設定に無い部屋なら端末側の追加分として登録しておく
@@ -219,13 +220,15 @@ function applyDeepLink(params) {
     const list = getRoomFixtures(state.building, state.room) || state.fixtures || [];
     const base = f.replace(/-[0-9a-z]$/i, "");
     const fixture = list.includes(f) ? f : (list.includes(base) ? base : f);
-    if (fixture !== state.fixture) changed = true;
+    if (fixture !== state.fixture) fixtureChanged = true;
     state.fixture = fixture;
     setLastFixture(fixture);
     parts.push(fixture);
   }
-  // 前と違う部屋・器具を引き継いだときは施工段階を「着工前」へ戻す
-  if (changed) resetStageToBefore();
+  // 前と違う部屋を引き継いだときだけ施工段階を「着工前」へ戻す。
+  // 同じ部屋で器具だけ変わったときは戻さない（v1.9.29。下の pickFixture と同じ理由）
+  if (roomChanged) resetStageToBefore();
+  else if (fixtureChanged) noticeStageKept();
   refreshChips();
   renderBoard();
   if (parts.length && !deepLinkNotified) {
@@ -442,6 +445,13 @@ function resetStageToBefore() {
   }
 }
 
+// 器具を変えても段階はそのまま。いまの段階を目立つように知らせる。
+function noticeStageKept() {
+  if (state.stage && state.stage !== "着工前") {
+    toastInfo(`施工段階は「${state.stage}」のままです`);
+  }
+}
+
 function selectStage(v) {
   if (!STAGE_BUTTONS.includes(v)) v = "着工前";
   state.stage = v;
@@ -592,7 +602,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.28");
+  url.searchParams.set("v", "1.9.29");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -803,7 +813,13 @@ async function pickFixture({ showAll = false } = {}) {
     const fixtureChanged = v !== state.fixture;
     state.fixture = v;
     setLastFixture(v);
-    if (fixtureChanged) resetStageToBefore();
+    // 同じ部屋の中で器具を選び直しても、施工段階は戻さない（v1.9.29）。
+    // 以前は「着工前」へ戻していたため、完成を撮り回っている途中で器具を
+    // 変えると、黒板が黙って「着工前」になっていた。
+    // 2026-09-25 S1棟915 の H098・S3棟216 の LD10-1 で、点灯した完成の姿が
+    // 「着工前」で保存された。現場は「部屋の器具を全部着工前で撮る → 工事 →
+    // 全部完成で撮る」の順なので、部屋の中では段階をそのままにするのが合う。
+    if (fixtureChanged) noticeStageKept();
     refreshChips();
     renderBoard();
   }
@@ -1843,6 +1859,7 @@ async function onShoot() {
   }
   if (!state.cameraOn) { toastError("カメラが起動していません"); return; }
   if (state.capturing) { toastInfo("写真を端末に保存中です…"); return; }
+  if (!(await confirmBeforeStage())) return;
 
   // バックグラウンド送信中でも次の撮影は許可する。
   // ただし未送信が上限に達している時は端末容量保護のため止める。
@@ -1953,6 +1970,45 @@ async function onShoot() {
     btn.disabled = false;
     btn.textContent = origText;
   }
+}
+
+// 「着工前」で撮ろうとしたとき、この端末で今日その部屋をもう撮っていれば
+// 本当に着工前でよいか聞く（v1.9.29）。聞くのは次のどちらかのとき。
+//   ・同じ部屋で「施工状況」「完成」を今日もう撮っている
+//   ・同じ部屋の同じ器具で「着工前」を今日もう撮っている
+// 完成のつもりが着工前で保存される取り違えを、撮る前に止めるため。
+// 「着工前のまま撮る」を選べばそのまま撮れる（撮り直しのとき）。
+async function confirmBeforeStage() {
+  if (state.stage !== "着工前") return true;
+  let shots = [];
+  try {
+    const roomKey = makeRoomKey(state.building, state.room);
+    const today = todayYmd();
+    shots = (await getAllPhotos()).filter(p =>
+      p && p.board && !p.board.isNoBoard &&
+      p.roomKey === roomKey && p.board.date === today);
+  } catch (e) {
+    return true;   // 端末の記録が読めないときは止めない
+  }
+  const later = shots.some(p => p.board.stage === "完成" || p.board.stage === "施工状況");
+  const again = shots.some(p => p.board.stage === "着工前" && p.board.fixture === state.fixture);
+  if (!later && !again) return true;
+
+  const why = later
+    ? `${state.building}-${state.room} は今日もう完成（施工状況）を撮っています`
+    : `${state.fixture} の着工前は今日もう撮っています`;
+  const v = await pickFromList({
+    title: `いま「着工前」で撮ろうとしています。${why}。`,
+    options: [
+      { value: "完成",     label: "「完成」に切り替えて撮る" },
+      { value: "施工状況", label: "「施工状況」に切り替えて撮る" },
+      { value: "着工前",   label: "「着工前」のまま撮る", sublabel: "撮り直しのとき" },
+    ],
+    allowInput: false,
+  });
+  if (!v) return false;          // 閉じたら撮らない
+  if (v !== "着工前") selectStage(v);
+  return true;
 }
 
 /* ============================================================ 直前写真のやり直し */
