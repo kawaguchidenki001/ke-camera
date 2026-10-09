@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.35";
+} from "./config.js?v=1.9.36";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.35";
+} from "./storage.js?v=1.9.36";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.35";
+} from "./ui.js?v=1.9.36";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.35";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.35";
-import { readAllConfig } from "./sheets.js?v=1.9.35";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.35";
+} from "./camera.js?v=1.9.36";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.36";
+import { readAllConfig } from "./sheets.js?v=1.9.36";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.36";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.35";
+} from "./gas-uploader.js?v=1.9.36";
 import {
   addPhoto, getPhoto, getAllPhotos, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.35";
+} from "./photoStore.js?v=1.9.36";
 
 const { $, $$ } = dom;
 
@@ -226,7 +226,7 @@ function applyDeepLink(params) {
     parts.push(fixture);
   }
   // 前と違う部屋を引き継いだときだけ施工段階を「着工前」へ戻す。
-  // 同じ部屋で器具だけ変わったときは戻さない（v1.9.35。下の pickFixture と同じ理由）
+  // 同じ部屋で器具だけ変わったときは戻さない（v1.9.36。下の pickFixture と同じ理由）
   if (roomChanged) resetStageToBefore();
   else if (fixtureChanged) noticeStageKept();
   refreshChips();
@@ -602,7 +602,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.35");
+  url.searchParams.set("v", "1.9.36");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
@@ -813,7 +813,7 @@ async function pickFixture({ showAll = false } = {}) {
     const fixtureChanged = v !== state.fixture;
     state.fixture = v;
     setLastFixture(v);
-    // 同じ部屋の中で器具を選び直しても、施工段階は戻さない（v1.9.35）。
+    // 同じ部屋の中で器具を選び直しても、施工段階は戻さない（v1.9.36）。
     // 以前は「着工前」へ戻していたため、完成を撮り回っている途中で器具を
     // 変えると、黒板が黙って「着工前」になっていた。
     // 2026-09-25 S1棟915 の H098・S3棟216 の LD10-1 で、点灯した完成の姿が
@@ -1973,7 +1973,7 @@ async function onShoot() {
 }
 
 // 「着工前」で撮ろうとしたとき、この端末で今日その部屋をもう撮っていれば
-// 本当に着工前でよいか聞く（v1.9.35）。聞くのは次のどちらかのとき。
+// 本当に着工前でよいか聞く（v1.9.36）。聞くのは次のどちらかのとき。
 //   ・同じ部屋で「施工状況」「完成」を今日もう撮っている
 //   ・同じ部屋の同じ器具で「着工前」を今日もう撮っている
 // 完成のつもりが着工前で保存される取り違えを、撮る前に止めるため。
