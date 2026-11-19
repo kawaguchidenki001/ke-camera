@@ -9,7 +9,7 @@ import {
   PENDING_LIMIT, PENDING_WARN, AUTO_CLEANUP_DAYS,
   QUALITY_PRESETS, DEFAULT_QUALITY,
   ZUMEN_APP_URL,
-} from "./config.js?v=1.9.47";
+} from "./config.js?v=1.9.48";
 import {
   getPhotographer, setPhotographer, getKnownPhotographers, removeKnownPhotographer,
   getCustomRooms, addCustomRoom, removeCustomRoom,
@@ -19,30 +19,30 @@ import {
   saveConfigCache, loadConfigCache,
   getQuality, setQuality,
   getSavedLensId, setSavedLensId,
-} from "./storage.js?v=1.9.47";
+} from "./storage.js?v=1.9.48";
 import {
   showScreen, getCurrentScreen, toast, toastSuccess, toastError, toastInfo,
   showLoading, hideLoading, setAuthIndicator, pickFromList, escapeHtml, dom,
   confirmDialog,
-} from "./ui.js?v=1.9.47";
+} from "./ui.js?v=1.9.48";
 import {
   startCamera, startCameraByDeviceId, listVideoInputs, getCurrentDeviceId,
   stopCamera, isTorchSupported, setTorch, getZoomCapabilities, setCameraZoom,
   hasAutoFocus, enableContinuousFocus, focusAtPoint,
-} from "./camera.js?v=1.9.47";
-import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.47";
-import { readAllConfig } from "./sheets.js?v=1.9.47";
-import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.47";
+} from "./camera.js?v=1.9.48";
+import { composePhoto, BOARD_HR, BROWH } from "./composer.js?v=1.9.48";
+import { readAllConfig } from "./sheets.js?v=1.9.48";
+import { getRoomFixtures, getBuildings } from "./roomFixtures.js?v=1.9.48";
 import {
   uploadViaGas, pingGas,
   getGasWebAppUrl, setGasWebAppUrl, getSharedToken, setSharedToken, getGasConfigStatus,
   getDriveParentId, setDriveParentId, parseDriveFolderId, hasDriveParentOverride,
-} from "./gas-uploader.js?v=1.9.47";
+} from "./gas-uploader.js?v=1.9.48";
 import {
   addPhoto, getPhoto, getAllPhotos, getPendingPhotos, countPending,
   markUploading, markUploaded, markFailed, resetStaleUploading, deletePhoto,
   autoCleanupOldUploads, isAtLimit, getObjectUrl, revokeObjectUrl, revokeAllObjectUrls,
-} from "./photoStore.js?v=1.9.47";
+} from "./photoStore.js?v=1.9.48";
 
 const { $, $$ } = dom;
 
@@ -602,7 +602,7 @@ async function forceAppUpdate() {
     console.warn("cache clear failed", e);
   }
   const url = new URL(window.location.href);
-  url.searchParams.set("v", "1.9.47");
+  url.searchParams.set("v", "1.9.48");
   url.searchParams.delete("reset");
   window.location.replace(url.toString());
 }
